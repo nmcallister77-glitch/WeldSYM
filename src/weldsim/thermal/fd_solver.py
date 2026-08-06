@@ -17,9 +17,15 @@ def run_2d_fd_thermal(
     weld: WeldParams,
     material: MaterialParams,
     T0: float = 300.0,
+    h: float = 0.005,  # effective thickness (m)
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Run a 2D transient heat conduction simulation on a regular grid.
+
+    Parameters
+    ----------
+    h : float
+        Effective thickness over which the surface heat flux is distributed (m).
 
     Returns
     -------
@@ -73,10 +79,10 @@ def run_2d_fd_thermal(
         # Compute heat source term Q(x, y, t) on the grid
         Q = np.zeros_like(T)
         for i in range(nx):
-            for j in range(ny):
-                Q[i, j] = heat_source_at_point(
-                    x[i], y[j], t, weld
-                )
+    for j in range(ny):
+        Q[i, j] = heat_source_at_point(
+            x[i], y[j], t, weld, h
+        )
 
         # Explicit update (interior points only)
         for i in range(1, nx - 1):
@@ -103,28 +109,41 @@ def heat_source_at_point(
     y: float,
     t: float,
     weld: WeldParams,
+    h: float,
 ) -> float:
     """
     Evaluate heat source (W/m^3) at a single (x, y, t) point.
-    Uses a simple 2D Gaussian in the plane; z is assumed 0.
+
+    Parameters
+    ----------
+    x, y : float
+        Spatial coordinates (m).
+    t : float
+        Time (s).
+    weld : WeldParams
+        Welding process parameters (power, efficiency, speed, etc.).
+    h : float
+        Effective plate thickness (m).
+
+    Returns
+    -------
+    q_vol : float
+        Volumetric heat source (W/m^3).
     """
-    if weld.direction == "x":
-        x_src = weld.start_pos[0] + weld.speed * t
-        y_src = weld.start_pos[1]
-    elif weld.direction == "y":
-        x_src = weld.start_pos[0]
-        y_src = weld.start_pos[1] + weld.speed * t
-    else:
-        raise ValueError("direction must be 'x' or 'y'")
+    # Position of the moving heat source along the weld line
+    x_src, y_src = weld_position_at_time(weld, t)
 
     dx = x - x_src
     dy = y - y_src
     r2 = dx**2 + dy**2
 
-    # Treat as surface heat flux spread over a small thickness h
-    h = 0.001  # m, artificial thickness
     q_eff = weld.power * weld.efficiency
     sigma = weld.sigma
 
-    q = (q_eff / (2 * np.pi * sigma**2 * h)) * np.exp(-r2 / (2 * sigma**2))
-    return q
+    # 2D Gaussian heat flux [W/m^2]
+    q_surf = (q_eff / (2.0 * np.pi * sigma**2)) * np.exp(-r2 / (2.0 * sigma**2))
+
+    # Treat as surface heat flux spread over thickness h → volumetric [W/m^3]
+    q_vol = q_surf / h
+
+    return q_vol

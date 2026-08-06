@@ -30,12 +30,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cad = [
-    "pythonocc-core>=7.7",
-]
-fea = [
-    "fenics-dolfinx",
-]
+cad = ["pythonocc-core>=7.7"]
+gui = ["streamlit>=1.30", "matplotlib>=3.8"]
 dev = [
     "pytest>=7.4",
     "pre-commit>=3.6",

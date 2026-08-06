@@ -46,6 +46,12 @@ def main():
         default="results/temperature.csv",
         help="Output CSV file",
     )
+    parser.add_argument(
+        "--thickness",
+        type=float,
+        default=5.0,  # T1 in mm; we’ll map it inside
+        help="Effective plate thickness T1 (mm)",
+    )
 
     args = parser.parse_args()
 
@@ -57,7 +63,6 @@ def main():
         direction="x",
         sigma=0.002,
     )
-
     mat = MaterialParams()
 
     config = ThermalSimulationConfig(
@@ -70,7 +75,8 @@ def main():
         weld=weld,
         material=mat,
         output_file=args.output,
-    )
+        T1=args.thickness / 1000.0,  # thickness in mm → T1 in m
+    )   
 
     print("Running 2D thermal simulation...")
     result = run_thermal_simulation(config)

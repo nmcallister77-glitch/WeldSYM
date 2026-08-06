@@ -24,6 +24,7 @@ class ThermalSimulationConfig:
     weld: WeldParams | None = None
     material: MaterialParams = field(default_factory=MaterialParams)
     output_file: str | None = "results/temperature.csv"
+    T1: float = 0.005  # effective thickness (m)
 
 
 def run_thermal_simulation(config: ThermalSimulationConfig):
@@ -58,6 +59,7 @@ def run_thermal_simulation(config: ThermalSimulationConfig):
         weld=config.weld,
         material=config.material,
         T0=config.material.T0,
+        h=config.T1,   # pass T1 (m) into solver as h
     )
 
     if config.output_file is not None:
