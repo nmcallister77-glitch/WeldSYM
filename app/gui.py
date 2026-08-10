@@ -312,9 +312,9 @@ def _page_thermal_and_wobble():
         st.divider()
         go, run = st.columns([1, 2])
         with go:
-            preview_pressed = st.button("Go (draw heat signature)", type="primary", use_container_width=True)
+            preview_pressed = st.button("Go (draw heat signature)", type="primary", width='stretch')
         with run:
-            run_pressed = st.button("Run full 2D thermal simulation", use_container_width=True)
+            run_pressed = st.button("Run full 2D thermal simulation", width='stretch')
 
         st.session_state["weld"] = weld
         st.session_state["path"] = path
@@ -468,7 +468,7 @@ def _page_keyhole_cfd():
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("OpenFOAM case")
-        if st.button("Generate workpiece STL", use_container_width=True):
+        if st.button("Generate workpiece STL", width='stretch'):
             with st.spinner("Generating STL..."):
                 rc, out, err = _run_python_script(
                     "keyhole-cfd/scripts/generate_workpiece_stl.py"
@@ -480,7 +480,7 @@ def _page_keyhole_cfd():
                 st.error(f"Failed:\n{err}")
     with c2:
         st.subheader("Case config")
-        if st.button("Configure OpenFOAM case", use_container_width=True):
+        if st.button("Configure OpenFOAM case", width='stretch'):
             with st.spinner("Configuring case..."):
                 rc, out, err = _run_python_script(
                     "keyhole-cfd/scripts/configure_case.py"
@@ -509,7 +509,7 @@ def _page_keyhole_cfd():
                 plotter.add_mesh(mesh, color=color, show_edges=show_edges)
                 plotter.add_axes()
                 png = plotter.screenshot()
-                st.image(png, use_container_width=True)
+                st.image(png, width='stretch')
         except Exception as e:
             st.warning(f"Could not render STL: {e}")
     else:
