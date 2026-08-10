@@ -1,0 +1,7 @@
+laserKeyholeVoF.C
+laserHeatSource/laserHeatSource.C
+recoilPressure/recoilPressure.C
+rayTracing/rayTracer.C
+enthalpyPorosity/enthalpyPorositySource.C
+
+EXE = $(FOAM_USER_APPBIN)/laserKeyholeVoF

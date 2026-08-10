@@ -1,0 +1,29 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  decomposeParDict
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      decomposeParDict;
+}
+
+numberOfSubdomains 32;
+
+method          scotch;
+
+hierarchicalCoeffs
+{
+    n               (4 4 2);
+    order           XYZ;
+    method          simple;
+}
+
+manualCoeffs
+{
+    dataFile        "";
+}
+
+distributed     no;
+roots           ( );

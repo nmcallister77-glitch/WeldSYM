@@ -1,0 +1,77 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  fvSchemes — VOF + enthalpy-porosity
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      fvSchemes;
+}
+
+ddtSchemes
+{
+    default         Euler;
+}
+
+gradSchemes
+{
+    default         Gauss linear;
+    grad(alpha)     Gauss linear;
+}
+
+divSchemes
+{
+    default                         none;
+    div(rhoPhi,U)                   Gauss linearUpwind grad(U);
+    div(phi,alpha)                  Gauss interfaceCompression vanLeer 1;
+    div(phi,alpha.metal)            Gauss interfaceCompression vanLeer 1;
+    div(phi,alpha.vapor)            Gauss interfaceCompression vanLeer 1;
+    div(rhoPhi,alpha)               Gauss interfaceCompression vanLeer 1;
+    div(rhoPhi,alpha.metal)         Gauss interfaceCompression vanLeer 1;
+    div(rhoPhi,alpha.vapor)         Gauss interfaceCompression vanLeer 1;
+    div(rhoPhi,T)                   Gauss linearUpwind grad(T);
+    div(rhoCpPhi,T)                 Gauss linearUpwind grad(T);
+    div(rhoPhi,h)                   Gauss linearUpwind grad(h);
+    div(((rho*nuEff)*dev2(T(grad(U))))) Gauss linear;
+}
+
+laplacianSchemes
+{
+    default         Gauss linear corrected;
+    laplacian(kEff,T) Gauss linear corrected;
+}
+
+interpolationSchemes
+{
+    default         linear;
+}
+
+snGradSchemes
+{
+    default         corrected;
+}
+
+fluxRequired
+{
+    default         no;
+    p_rgh;
+    alpha.metal;
+}
+
+wallDist
+{
+    method          meshWave;
+}
+
+MULES
+{
+    nLimiterIter    5;
+    maxAlphaIter    10;
+    maxAlphaIterUnbounded 15;
+}
+
+compression
+{
+    alpha           1;
+}

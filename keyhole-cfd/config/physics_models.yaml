@@ -1,0 +1,62 @@
+# Physics Model Registry — maps symbolic models to solver implementations
+
+navier_stokes:
+  formulation: incompressible_vof
+  terms:
+    surface_tension:
+      model: continuum_surface_force
+      curvature: grad_alpha
+    marangoni:
+      model: tangential_stress
+      coefficient: dSigma_dT
+    buoyancy:
+      model: boussinesq
+      beta_source: material.thermal_expansion
+    recoil_pressure:
+      model: knudsen_layer
+      formula: "P_r = 0.54 * P_atm * exp(L_v * M * (T - T_b) / (R * T * T_b))"
+      application: normal_traction_vapor_liquid
+
+phase_change:
+  melting_solidification:
+    model: enthalpy_porosity
+    mushy_constant: 1.0e5
+  vaporization:
+    model: mass_source_sink
+    trigger: "T >= T_b"
+    latent: L_v
+
+optics:
+  beam:
+    model: dual_cylinder_gaussian
+    intensity: "I(r,z) = (2P/(pi*w^2)) * exp(-2r^2/w^2)"
+  ray_tracing:
+    intersections: alpha_liquid_0.5_isosurface
+    fresnel: unpolarized
+    max_bounces: 20
+  interface_energy_balance:
+    residual_tolerance: 1.0e-3
+
+interface_tracking:
+  primary: VOF
+  compression: interfaceCompression
+  amr:
+    engine: dynamicRefineFvMesh
+    max_level: 4
+  alternatives:
+    level_set:
+      reinit_interval: 5
+      coupling: brackbill_csf
+
+thermomechanical:
+  fea_solver: CalculiX
+  coupling:
+    one_way:
+      fluid_to_solid: [Temperature]
+    fully_coupled:
+      fluid_to_solid: [Temperature]
+      solid_to_fluid: [Displacement]
+  plasticity: J2_vonMises
+  transformation_strain:
+    steel: Koistinen_Marburger
+    titanium: disabled

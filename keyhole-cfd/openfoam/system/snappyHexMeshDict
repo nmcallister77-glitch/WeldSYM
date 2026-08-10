@@ -1,0 +1,155 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  snappyHexMeshDict — Local refinement for keyhole capillary + melt pool
+
+  Refinement zones:
+    1. keyholeCore   — 15 µm target (level 4–5 from ~1 mm base)
+    2. meltPool      — 75 µm target
+    3. hazBand       — 0.5 mm transition
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      snappyHexMeshDict;
+}
+
+castellatedMesh true;
+snap            true;
+addLayers       false;
+
+geometry
+{
+    workpiece
+    {
+        type   searchableBox;
+        min    (0.0 -0.020 -0.006);
+        max    (0.080  0.020  0.000);
+    }
+
+    keyholeCore
+    {
+        type   searchableBox;
+        min    (-0.002 -0.001 -0.006);
+        max    ( 0.002  0.001  0.001);
+    }
+
+    meltPoolZone
+    {
+        type   searchableBox;
+        min    (-0.005 -0.004 -0.006);
+        max    ( 0.010  0.004  0.002);
+    }
+
+    hazBand
+    {
+        type   searchableBox;
+        min    (-0.010 -0.010 -0.006);
+        max    ( 0.020  0.010  0.005);
+    }
+
+    // Optional: replace boxes with triSurface for curved workpiece
+    // workpieceSTL
+    // {
+    //     type   triSurfaceMesh;
+    //     file   "workpiece.stl";
+    // }
+}
+
+castellatedMeshControls
+{
+    maxLocalCells        1000000;
+    maxGlobalCells       50000000;
+    minRefinementCells   10;
+    maxLoadUnbalance     0.10;
+    nCellsBetweenLevels  3;
+
+    features
+    (
+    );
+
+    refinementSurfaces
+    {
+        workpiece
+        {
+            level (2 3);
+            patchInfo { type wall; }
+        }
+    }
+
+    resolveFeatureAngle 30;
+
+    refinementRegions
+    {
+        keyholeCore
+        {
+            mode    inside;
+            levels  ((1e15 5));   // max refinement inside keyhole box
+        }
+
+        meltPoolZone
+        {
+            mode    inside;
+            levels  ((1e15 3));
+        }
+
+        hazBand
+        {
+            mode    inside;
+            levels  ((1e15 1));
+        }
+    }
+
+    locationInMesh (0.001 0.0 -0.003);
+
+    allowFreeStandingZoneGeneration false;
+}
+
+snapControls
+{
+    nSmoothPatch    3;
+    tolerance       2.0;
+    nSolveIter      100;
+    nRelaxIter      5;
+    nFeatureSnapIter 10;
+    implicitFeatureSnap false;
+    explicitFeatureSnap true;
+    multiRegionFeatureSnap false;
+}
+
+addLayersControls
+{
+    relativeSizes       true;
+    layers
+    {
+    }
+    expansionRatio      1.2;
+    finalLayerThickness 0.0003;
+    minThickness        0.0001;
+    nGrow               0;
+    featureAngle        60;
+    slipFeatureAngle    30;
+    nRelaxIter          5;
+    nSmoothSurfaceNormals 1;
+    nSmoothNormals      3;
+    nSmoothThickness    10;
+    maxFaceThicknessRatio 0.5;
+    maxThicknessToMedialRatio 0.3;
+    minMedialAxisAngle  90;
+    nBufferCellsNoExtrude 0;
+    nLayerIter          50;
+    nLayerIterMax       10;
+}
+
+meshQualityControls
+{
+    #include "meshQualityDict"
+}
+
+writeFlags      ( scalarLevels layerSets layerFields );
+mergeTolerance  1e-6;
+
+debug 0;
+
+// After snappyHexMesh, dynamicRefineFvMesh (system/dynamicMeshDict) further
+// refines during the simulation based on alpha and temperature gradients.
