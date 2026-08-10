@@ -554,6 +554,7 @@ def _page_keyhole_cfd():
     st.code(
         """cd ~/WeldSYM/keyhole-cfd
 python3 scripts/configure_case.py
+python3 scripts/generate_workpiece_stl.py
 blockMesh
 laserKeyholeVoF
 # or parallel:
@@ -561,6 +562,52 @@ laserKeyholeVoF
 """,
         language="bash",
     )
+
+    with st.expander("WSL runner (experimental)", expanded=False):
+        st.write("Run the OpenFOAM mesh and solver directly from WSL if a distro is installed.")
+
+        # Detect WSL distros
+        if "wsl_distros" not in st.session_state:
+            try:
+                proc = subprocess.run(["wsl", "-l", "-v"], capture_output=True, text=True)
+                st.session_state["wsl_distros"] = proc.stdout
+            except Exception as e:
+                st.session_state["wsl_distros"] = f"Error: {e}"
+        st.code(st.session_state["wsl_distros"], language="text")
+
+        # Convert Windows path to WSL /mnt path
+        posix = keyhole_root.as_posix()
+        if len(posix) >= 2 and posix[1] == ":":
+            drive = posix[0].lower()
+            wsl_path = f"/mnt/{drive}{posix[2:]}"
+        else:
+            wsl_path = str(keyhole_root)
+        st.write(f"**WSL path:** `{wsl_path}`")
+
+        openfoam_bashrc = st.text_input("OpenFOAM bashrc path in WSL", "/opt/openfoam11/etc/bashrc")
+
+        def _wsl_cmd(cmd: str) -> list[str]:
+            return ["wsl", "-e", "bash", "-c", f"source {openfoam_bashrc} 2>/dev/null || true; cd {wsl_path}/openfoam && {cmd}"]
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("Run blockMesh in WSL", width='stretch'):
+                with st.spinner("Running blockMesh in WSL..."):
+                    proc = subprocess.run(_wsl_cmd("blockMesh"), capture_output=True, text=True, timeout=120)
+                if proc.returncode == 0:
+                    st.success("blockMesh completed")
+                else:
+                    st.error(f"blockMesh failed: {proc.stderr}")
+                st.code(proc.stdout or proc.stderr, language="text")
+        with col_b:
+            if st.button("Run laserKeyholeVoF in WSL", width='stretch'):
+                with st.spinner("Starting laserKeyholeVoF in WSL (first 30s)..."):
+                    proc = subprocess.run(_wsl_cmd("laserKeyholeVoF"), capture_output=True, text=True, timeout=30)
+                if proc.returncode == 0:
+                    st.success("laserKeyholeVoF completed or timed out")
+                else:
+                    st.error(f"laserKeyholeVoF error: {proc.stderr}")
+                st.code(proc.stdout or proc.stderr, language="text")
 
 
 def _page_docs():
