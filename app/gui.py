@@ -423,7 +423,7 @@ def _page_thermal_and_wobble():
                                 trail_time=trail,
                                 heat_dt=0.002,
                                 fps=fps,
-                                gif_width=480,
+                                gif_width=400,
                             )
                             st.session_state["wobble_gif"] = gif
                     st.image(st.session_state["wobble_gif"], caption="Wobbled weld animation — brighter = more dwell time")

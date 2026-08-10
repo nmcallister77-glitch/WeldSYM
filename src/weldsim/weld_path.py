@@ -301,6 +301,8 @@ def wobble_animation_gif(
     for k, t_now in enumerate(frame_times):
         rgba = _to_rgba(Q_frames[k])
         img = Image.fromarray(rgba, mode="RGBA").convert("RGB")
+        if img.width != gif_width or img.height != gif_height:
+            img = img.resize((gif_width, gif_height), Image.Resampling.BILINEAR)
         draw = ImageDraw.Draw(img)
 
         # Recent wobble trail
