@@ -81,7 +81,7 @@ def main():
     print("Running 2D thermal simulation...")
     result = run_thermal_simulation(config)
     print(f"Simulation complete. Output: {args.output}")
-    print(f"Temperature range: {result['T'].min():.1f} K – {result['T'].max():.1f} K")
+    print(f"Temperature range: {result['T'].min():.1f} K - {result['T'].max():.1f} K")
 
 
 if __name__ == "__main__":

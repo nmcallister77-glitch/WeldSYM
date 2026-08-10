@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import csv
+import os
 from dataclasses import dataclass, field
 from typing import Dict, Tuple
 
 import numpy as np
 
-from .types import WeldParams, MaterialParams
-from .thermal.fd_solver import run_2d_fd_thermal as _run_fd
+from .materials import Material, list_materials, load_material
+from .thermal.fd_solver import run_2d_fd_thermal
+from .types import MaterialParams, WeldParams
+from .weld_path import WeldPath, WobbleParams
 
 
 @dataclass
@@ -22,12 +26,26 @@ class ThermalSimulationConfig:
     t_end: float = 10.0  # s
     dt: float = 0.05  # s
     weld: WeldParams | None = None
-    material: MaterialParams = field(default_factory=MaterialParams)
+    material: MaterialParams | Material = field(default_factory=MaterialParams)
     output_file: str | None = "results/temperature.csv"
     T1: float = 0.005  # effective thickness (m)
+    path: WeldPath | None = None
+    wobble: WobbleParams | None = None
+    probe: tuple[float, float] | None = None
 
 
-def run_thermal_simulation(config: ThermalSimulationConfig):
+def _to_material_params(material: MaterialParams | Material) -> MaterialParams:
+    if isinstance(material, Material):
+        return MaterialParams(
+            k=material.thermal_conductivity,
+            rho=material.density,
+            cp=material.specific_heat,
+            T0=material.T0,
+        )
+    return material
+
+
+def run_thermal_simulation(config: ThermalSimulationConfig) -> Dict[str, np.ndarray]:
     """
     Run a 2D transient thermal simulation with a moving heat source.
 
@@ -49,7 +67,9 @@ def run_thermal_simulation(config: ThermalSimulationConfig):
             direction="x",
         )
 
-    x, y, T = _run_fd(
+    mat = _to_material_params(config.material)
+
+    x, y, T, T_probe = run_2d_fd_thermal(
         nx=config.nx,
         ny=config.ny,
         Lx=config.Lx,
@@ -57,17 +77,23 @@ def run_thermal_simulation(config: ThermalSimulationConfig):
         t_end=config.t_end,
         dt=config.dt,
         weld=config.weld,
-        material=config.material,
-        T0=config.material.T0,
-        h=config.T1,   # pass T1 (m) into solver as h
+        material=mat,
+        T0=mat.T0,
+        h=config.T1,
+        path=config.path,
+        wobble=config.wobble,
+        probe=config.probe,
     )
 
     if config.output_file is not None:
-        import os
         os.makedirs(os.path.dirname(config.output_file) or ".", exist_ok=True)
         save_temperature_csv(config.output_file, x, y, T)
 
-    return {"x": x, "y": y, "T": T}
+    result = {"x": x, "y": y, "T": T}
+    if T_probe is not None:
+        result["t"] = np.arange(0, config.t_end, config.dt)
+        result["T_probe"] = T_probe
+    return result
 
 
 def save_temperature_csv(path: str, x: np.ndarray, y: np.ndarray, T: np.ndarray):
@@ -78,3 +104,17 @@ def save_temperature_csv(path: str, x: np.ndarray, y: np.ndarray, T: np.ndarray)
         for i in range(nx):
             for j in range(ny):
                 f.write(f"{x[i]:.6e},{y[j]:.6e},{T[i, j]:.3f}\n")
+
+
+__all__ = [
+    "ThermalSimulationConfig",
+    "run_thermal_simulation",
+    "save_temperature_csv",
+    "WeldParams",
+    "MaterialParams",
+    "Material",
+    "list_materials",
+    "load_material",
+    "WeldPath",
+    "WobbleParams",
+]
