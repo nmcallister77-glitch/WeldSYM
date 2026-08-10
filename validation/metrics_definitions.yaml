@@ -1,0 +1,112 @@
+# Validation Metric Definitions — Keyhole Laser Welding + Distortion
+
+metrics:
+  keyhole_depth:
+    symbol: "d_kh"
+    unit: "m"
+    definition: >
+      Maximum distance from the top surface along the laser beam axis where
+      the vapor volume fraction alpha.vapor exceeds 0.5.
+    extraction:
+      source: "OpenFOAM postProcessing/sets/beamAxis"
+      method: "max(z | alpha.vapor > 0.5)"
+    acceptance:
+      mesh_independence: "< 5% change on 1.5x refinement"
+      experimental_band: "±10% vs bead cross-section radiography if available"
+
+  pool_width_top:
+    symbol: "w_top"
+    unit: "m"
+    definition: >
+      Full transverse width of the melt pool at the top surface where
+      liquid metal fraction exceeds 0.5.
+    extraction:
+      source: "OpenFOAM surface slice at z=0"
+      method: "max(y) - min(y) for alpha.metal > 0.5"
+
+  pool_width_root:
+    symbol: "w_root"
+    unit: "m"
+    definition: >
+      Full transverse width at the maximum pool penetration depth (root).
+    extraction:
+      source: "OpenFOAM cuttingPlane at max keyhole depth"
+      method: "FWHM of alpha.metal > 0.5"
+
+  cooling_rate_8_5:
+    symbol: "R_8/5"
+    unit: "K/s"
+    definition: >
+      Average cooling rate through the 800°C to 500°C temperature interval:
+      R_8/5 = (T_800 - T_500) / (t_500 - t_800), with T in Kelvin.
+      Equivalent to (1073.15 - 773.15) / delta_t.
+    extraction:
+      source: "Probe point in HAZ or thermal history from FEA nodes"
+      method: "Inverse slope between threshold crossings"
+    relevance: "HAZ microstructure, grain size, hardness prediction"
+
+  angular_distortion:
+    symbol: "theta"
+    unit: "deg"
+    definition: >
+      Rotation of the free edge relative to the undeformed reference normal,
+      measured post-cooldown (T < 0.5 * T_melt at 5 mm from weld).
+    extraction:
+      source: "CalculiX nodal displacement field"
+      method: "angle between deformed and reference edge normal vectors"
+    node_sets:
+      - "free_edge_top"
+      - "reference_midspan"
+
+  longitudinal_shrinkage:
+    symbol: "epsilon_L"
+    unit: "dimensionless"
+    definition: >
+      Relative change in length along the weld travel direction:
+      epsilon_L = (L_final - L_0) / L_0.
+    extraction:
+      source: "CalculiX node pairs along weld centerline"
+      method: "delta_L / L_0"
+
+  out_of_plane_displacement:
+    symbol: "w_max"
+    unit: "m"
+    definition: >
+      Maximum Z-displacement magnitude on the free surface post-cooldown.
+    extraction:
+      source: "CalculiX U field"
+      method: "max(|U_z|) on top surface node set"
+
+conservation_checks:
+  mass:
+    formula: "|V_liquid(t) - V_liquid(0)| / V_liquid(0)"
+    tolerance: 0.005
+  energy:
+    formula: "|P_laser - Q_cond - Q_latent - Q_rad - Q_conv| / P_laser"
+    tolerance: 0.05
+
+dimensionless_groups:
+  - name: "P_star"
+    formula: "P / (rho * c_p * T_m * a * v)"
+  - name: "Re"
+    formula: "rho * U * L / mu"
+  - name: "Pe"
+    formula: "rho * c_p * U * L / k"
+  - name: "Ma"
+    formula: "U / sqrt(gamma * R * T)"
+
+export_fields:
+  vtk:
+    - Temperature
+    - Velocity
+    - Pressure
+    - alpha_metal
+    - alpha_vapor
+    - liquidFraction
+    - grad_p
+    - laserHeatFlux
+    - recoilPressure
+    - plastic_strain
+  xdmf:
+    collection: temporal
+    sync_with: vtk

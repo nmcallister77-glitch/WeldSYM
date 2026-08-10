@@ -1,0 +1,73 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  dynamicMeshDict — adaptive refinement in keyhole region
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      dynamicMeshDict;
+}
+
+dynamicFvMesh   dynamicRefineFvMesh;
+
+castellatedMeshControls
+{
+    maxRefinement   4;
+    maxCells        50000000;
+}
+
+refineInterval  1;
+
+field
+{
+    alpha.metal
+    {
+        lowerRefineLevel  0.3;
+        upperRefineLevel  0.7;
+        unrefineLevel     0.05;
+    }
+    T
+    {
+        lowerRefineLevel  1873;
+        upperRefineLevel  1973;
+        unrefineLevel     800;
+    }
+}
+
+gradient
+{
+    alpha.metal
+    {
+        gradRefineLevel   1e5;
+        gradUnrefineLevel 2e4;
+    }
+}
+
+protectedRegion
+{
+    type            box;
+    min             (-0.002 -0.001 -0.006);
+    max             (0.002 0.001 0.001);
+}
+
+correctFluxes
+(
+    (phi none)
+    (nPhi none)
+);
+
+mapFields
+{
+    alpha.metal;
+    T;
+    U;
+    p_rgh;
+}
+
+volumeMonitor
+{
+    field           alpha.metal;
+    threshold       0.5;
+    maxLossPerMs    0.005;
+}

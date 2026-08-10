@@ -1,0 +1,62 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  laserHeatSource — dual-cylinder Gaussian ray-tracing configuration
+  Consumed by laserKeyholeVoF custom boundary/source
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      laserHeatSource;
+}
+
+laserModel        simpleGaussian;
+
+beam
+{
+    power           3000.0;               // [W]
+    wavelength      1.07e-6;
+    w0              0.00015;             // focus radius [m]
+    sigmaZ          300e-6;             // axial spread [m]
+    focus           (0 0 0);
+    direction       (0 0 -1);
+    travelSpeed     0.015;              // [m/s]
+    travelDir       (1 0 0);
+    absorptivity    0.35;
+}
+
+rayTracing
+{
+    numRays         10000;
+    maxBounces      20;
+    powerThreshold  1e-3;
+    diffuseFraction 0.15;
+    outerRadius     200e-6;
+    innerRadius     80e-6;
+    subCycles       3;
+}
+
+fresnel
+{
+    model           unpolarized;
+    temperatureDependent  true;
+    propertyTable   "../materials/Ti6Al4V_optical.dat";
+}
+
+recoilPressure
+{
+    model           knudsenLayer;
+    prefactor       0.54;
+    pAtm            101325;
+    clampMin        0;
+    clampMax        10e6;
+}
+
+interfaceEnergyBalance
+{
+    enabled         true;
+    tolerance       1e-3;
+    maxIter         50;
+    convectionCoeff 25;                 // h_gas [W/m²/K]
+    gasTemperature  293.15;
+}
