@@ -66,23 +66,11 @@ def run_2d_fd_thermal(
     for step in range(n_steps):
         t = step * dt
 
-        # Move heat source
-        if weld.direction == "x":
-            x_src = weld.start_pos[0] + weld.speed * t
-            y_src = weld.start_pos[1]
-        elif weld.direction == "y":
-            x_src = weld.start_pos[0]
-            y_src = weld.start_pos[1] + weld.speed * t
-        else:
-            raise ValueError("direction must be 'x' or 'y'")
-
         # Compute heat source term Q(x, y, t) on the grid
         Q = np.zeros_like(T)
         for i in range(nx):
-    for j in range(ny):
-        Q[i, j] = heat_source_at_point(
-            x[i], y[j], t, weld, h
-        )
+            for j in range(ny):
+                Q[i, j] = heat_source_at_point(x[i], y[j], t, weld, h)
 
         # Explicit update (interior points only)
         for i in range(1, nx - 1):
@@ -102,6 +90,19 @@ def run_2d_fd_thermal(
         T, T_new = T_new, T  # swap
 
     return x, y, T
+
+
+def weld_position_at_time(weld: WeldParams, t: float) -> tuple[float, float]:
+    """Return the (x, y) position of the moving heat source at time t."""
+    if weld.direction == "x":
+        x_src = weld.start_pos[0] + weld.speed * t
+        y_src = weld.start_pos[1]
+    elif weld.direction == "y":
+        x_src = weld.start_pos[0]
+        y_src = weld.start_pos[1] + weld.speed * t
+    else:
+        raise ValueError("direction must be 'x' or 'y'")
+    return x_src, y_src
 
 
 def heat_source_at_point(
