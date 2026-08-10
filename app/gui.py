@@ -405,9 +405,9 @@ def _page_thermal_and_wobble():
                 if run_anim or "wobble_gif" in st.session_state:
                     if run_anim:
                         with st.spinner("Rendering animation..."):
-                            # Coarse grid for fast animation; visual quality is fine
-                            x_anim = np.linspace(0, Lx, max(41, min(81, len(x))))
-                            y_anim = np.linspace(0, Ly, max(21, min(41, len(y))))
+                            # Fixed coarse grid for fast, accurate wobble rendering
+                            x_anim = np.linspace(0, Lx, 41)
+                            y_anim = np.linspace(0, Ly, 21)
                             t_end_anim = min(st.session_state.get("t_end", 6.0), path.duration)
                             gif = wobble_animation_gif(
                                 path=path,
@@ -421,7 +421,7 @@ def _page_thermal_and_wobble():
                                 t_end=t_end_anim,
                                 frame_dt=anim_dt,
                                 trail_time=trail,
-                                heat_dt=0.005,
+                                heat_dt=0.002,
                                 fps=fps,
                                 gif_width=480,
                             )
