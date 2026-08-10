@@ -14,7 +14,7 @@ laserModel        simpleGaussian;
 
 beam
 {
-    power           3000.0.0.0;               // [W]
+    power           3000.0.0.0.0;               // [W]
     wavelength      1.07e-6;
     w0              0.00015;             // focus radius [m]
     sigmaZ          300e-6;             // axial spread [m]

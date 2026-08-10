@@ -614,11 +614,21 @@ def _page_docs():
     st.header("Documentation")
     st.markdown(
         """
-        - **2D thermal solver**: explicit finite differences with a moving Gaussian surface source.
-        - **Wobble patterns**: circle, line/sine, figure-8, infinity. Amplitude in µm, frequency in Hz.
-        - **Heat signature**: time-integrated surface Gaussian divided by effective thickness.
-        - **3D keyhole CFD**: OpenFOAM VOF solver. Build with `wmake` in WSL2.
-        - **Coupled distortion**: preCICE + CalculiX (stub config in `keyhole-cfd/scripts/preCICE_config.xml`).
+        **2D thermal + wobble (Windows)**
+        - Explicit finite-difference conduction with a moving Gaussian surface source
+        - Material library (Ti-6Al-4V, S355) with temperature-dependent properties
+        - Weld path with start/end points and live length readout
+        - Wobble patterns: circle, line/sine, figure-8, infinity
+        - Heat signature = time-integrated Gaussian over effective thickness `h`
+        - Run `python run_gui.py` from the repo root
+
+        **3D keyhole CFD (WSL2 + OpenFOAM)**
+        - OpenFOAM VOF solver (`laserKeyholeVoF`) with enthalpy-porosity, recoil pressure, laser ray tracing
+        - `blockMesh`, `laserKeyholeVoF`, and `python3` are **Linux/WSL commands**
+        - Build the custom solver in WSL2 under `keyhole-cfd/solver/laserKeyholeVoF`
+        - The Windows repo is mounted in WSL under `/mnt/c/...`
+        - Use the **3D Keyhole CFD** tab to configure the case, generate the STL, and preview it
+        - Use the **WSL runner** panel to run `blockMesh` / `laserKeyholeVoF` from the GUI
         """
     )
 

@@ -2,53 +2,127 @@
 
 Streamlit dashboard + Python tooling for laser-welding simulation: fast 2D thermal estimates with wobble, and a full 3D OpenFOAM VOF keyhole solver.
 
-## Quick start
-
-```bash
-# 1. Install
-cd welding-sim
-pip install -e ".[gui]"
-
-# 2. Launch the dashboard
-python run_gui.py
-# open http://localhost:8501
-```
-
-## What it does
-
-- **2D Thermal + Wobble**
-  - Material library (Ti-6Al-4V, S355 steel) with temperature-dependent properties
-  - Arbitrary weld path with length, start/end points
-  - Wobble calculator: circle, line/sine, figure-8, infinity patterns
-  - "Go" button draws the wobbled beam path and accumulated heat signature
-  - "Run" button runs a finite-difference thermal simulation
-  - Outputs: 2D/3D temperature plots, melt-pool metrics, longitudinal/transverse profiles, time-temperature at a probe, CSV export
-
-- **3D Keyhole CFD**
-  - OpenFOAM VOF solver (`laserKeyholeVoF`) with enthalpy-porosity, recoil pressure, and laser ray tracing
-  - Generate workpiece STL and configure the OpenFOAM case from the GUI
-  - 3D STL preview with PyVista
-  - Build/run on WSL2 / Ubuntu with `blockMesh` and `laserKeyholeVoF`
-
 ## Repository layout
 
-- `app/gui.py` — Streamlit dashboard
-- `src/weldsim/` — Python package (thermal FD solver, wobble path, material loader, simulation API)
-- `keyhole-cfd/` — OpenFOAM case + custom `laserKeyholeVoF` solver
-- `keyhole-cfd/materials/` — YAML material property tables
+Clone or copy this repo somewhere on your machine. The paths below use `C:\Users\nmcal\welding-sim\welding-sim` as an example.
+
+```text
+app/gui.py              — Streamlit dashboard
+src/weldsim/            — Python package (thermal FD solver, wobble path, material loader)
+keyhole-cfd/            — OpenFOAM VOF case + custom laserKeyholeVoF solver
+keyhole-cfd/materials/  — YAML material property tables
+```
+
+## 1. 2D thermal + wobble (runs on Windows)
+
+Open a PowerShell window and change into the repo root:
+
+```powershell
+cd "C:\Users\nmcal\welding-sim\welding-sim"
+```
+
+Install once:
+
+```powershell
+pip install -e ".[gui]"
+```
+
+Launch the dashboard:
+
+```powershell
+python run_gui.py
+```
+
+Then open http://localhost:8501 in your browser.
+
+Use the **2D Thermal + Wobble** tab for fast laser-welding estimates, and the **3D Keyhole CFD** tab to prepare the OpenFOAM case.
+
+## 2. 3D keyhole CFD (requires WSL2 + OpenFOAM)
+
+The full 3D solver is a Linux/WSL2 application. `blockMesh`, `laserKeyholeVoF`, and the `python3` commands are **not Windows commands**, so do not run them in PowerShell directly.
+
+### 2.1 Install WSL2 and a Linux distro
+
+1. Open a PowerShell **administrator** window and run:
+
+   ```powershell
+   wsl --install
+   ```
+
+2. Reboot when prompted.
+3. After reboot, WSL will install Ubuntu. If it does not, run:
+
+   ```powershell
+   wsl --install -d Ubuntu
+   ```
+
+4. Start WSL and set a username/password:
+
+   ```powershell
+   wsl
+   ```
+
+### 2.2 Install OpenFOAM in WSL2
+
+Inside the WSL Ubuntu terminal, install OpenFOAM. For OpenFOAM v11 (example):
+
+```bash
+sudo apt update
+sudo apt install -y openfoam11
+```
+
+Source the OpenFOAM environment in every WSL shell where you run OpenFOAM commands:
+
+```bash
+source /opt/openfoam11/etc/bashrc
+```
+
+### 2.3 Build the custom solver
+
+The custom `laserKeyholeVoF` solver must be compiled in WSL2 inside `keyhole-cfd/solver/laserKeyholeVoF`.
+
+### 2.4 Run the case
+
+The Windows repo is visible inside WSL at the `/mnt/...` path. For the example location above, the WSL path is:
+
+```text
+/mnt/c/Users/nmcal/welding-sim/welding-sim/keyhole-cfd
+```
+
+Open a WSL terminal and run:
+
+```bash
+cd /mnt/c/Users/nmcal/welding-sim/welding-sim/keyhole-cfd
+source /opt/openfoam11/etc/bashrc
+
+python3 scripts/configure_case.py
+python3 scripts/generate_workpiece_stl.py
+
+blockMesh
+laserKeyholeVoF
+```
+
+For parallel (4 cores):
+
+```bash
+decomposePar
+mpirun -np 4 laserKeyholeVoF -parallel
+reconstructPar
+```
+
+### 2.5 From the Streamlit GUI
+
+On the **3D Keyhole CFD** tab you can also:
+
+- Generate the workpiece STL
+- Configure the OpenFOAM case
+- Preview the STL in 3D
+- Open the **WSL runner** panel and run `blockMesh` / `laserKeyholeVoF` directly from the GUI
 
 ## CLI
 
-```bash
+Windows PowerShell:
+
+```powershell
 python -m weldsim.cli --power 1500 --speed 0.01 --t-end 2 --dt 0.05
-```
-
-## 3D solver (WSL2 / Linux)
-
-```bash
-cd keyhole-cfd
-python3 scripts/configure_case.py
-python3 scripts/generate_workpiece_stl.py
-blockMesh
-laserKeyholeVoF
 ```
