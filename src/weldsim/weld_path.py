@@ -2,9 +2,10 @@
 
 Provides:
 - WeldPath: a polyline weld path with speed per segment.
-- WobbleParams: laser beam wobble (circular, figure-8, infinity, line).
+- WobbleParams: laser beam wobble (circle, figure-8, infinity, line).
 - beam_at_time: the wobbled beam centre at any time t.
 - heat_signature: a 2D map of absorbed energy density over the plate.
+- wobble_animation_gif: an animated GIF of the wobbled beam and growing heat signature.
 """
 
 from __future__ import annotations
@@ -196,3 +197,141 @@ def beam_trajectory(
     for i, t in enumerate(ts):
         x_traj[i], y_traj[i] = beam_at_time(path, wobble, t)
     return x_traj, y_traj
+
+
+def wobble_animation_gif(
+    path: WeldPath,
+    wobble: WobbleParams,
+    power: float,
+    efficiency: float,
+    sigma: float,
+    h: float,
+    x: np.ndarray,
+    y: np.ndarray,
+    t_end: float,
+    frame_dt: float = 0.05,
+    trail_time: float = 0.05,
+    heat_dt: float = 0.002,
+    fps: int = 15,
+    gif_width: int = 400,
+) -> bytes:
+    """Generate a GIF animation of the wobbled weld being made.
+
+    The GIF shows the beam moving along the path (with the recent wobble trail
+    visible) and the heat signature growing in the background.  Brighter areas
+    in the heat signature show where the beam has spent the most time / energy.
+
+    Returns
+    -------
+    gif_bytes : bytes
+        GIF data suitable for ``st.image`` or writing to a file.
+    """
+    import io
+
+    import matplotlib
+    from PIL import Image, ImageDraw
+
+    hot = matplotlib.colormaps["hot"]
+
+    # Downsample the simulation grid to a fixed image size
+    nx, ny = len(x), len(y)
+    gif_height = int(round(gif_width * (y[-1] - y[0]) / (x[-1] - x[0])))
+
+    X, Y = np.meshgrid(x, y, indexing="ij")
+    Q = np.zeros_like(X)
+    q_eff = power * efficiency
+    denom = 2.0 * math.pi * sigma**2
+    two_sigma2 = 2.0 * sigma**2
+
+    # Full trajectory at fine resolution for smooth wobble trail
+    ts_full = np.arange(0.0, t_end, heat_dt)
+    x_full = np.zeros_like(ts_full)
+    y_full = np.zeros_like(ts_full)
+    for i, t in enumerate(ts_full):
+        x_full[i], y_full[i] = beam_at_time(path, wobble, t)
+
+    # Animation frame times
+    frame_times = np.arange(0.0, t_end + frame_dt, frame_dt)
+    frame_times[-1] = min(frame_times[-1], t_end)
+
+    # Precompute cumulative heat up to each frame time
+    Q_frames = []
+    t = 0.0
+    Q = np.zeros_like(X)
+    frame_idx = 0
+    while t < t_end and frame_idx < len(frame_times):
+        while frame_idx < len(frame_times) and t >= frame_times[frame_idx]:
+            Q_frames.append(Q.copy())
+            frame_idx += 1
+        x_src, y_src = beam_at_time(path, wobble, t)
+        r2 = (X - x_src) ** 2 + (Y - y_src) ** 2
+        q_surf = (q_eff / denom) * np.exp(-r2 / two_sigma2)
+        Q += q_surf * heat_dt / h
+        t += heat_dt
+    while frame_idx < len(frame_times):
+        Q_frames.append(Q.copy())
+        frame_idx += 1
+
+    # Global log-scaled colormap range based on final accumulated heat
+    Qmax = max(Q.max(), 1e-9)
+    Qmin = Q[Q > 0].min() if Q.max() > 0 else 1e-9
+    log_min = math.log10(Qmin)
+    log_max = math.log10(Qmax)
+    log_range = max(log_max - log_min, 1e-6)
+
+    def _to_rgba(q: np.ndarray) -> np.ndarray:
+        q = q.T  # (ny, nx)
+        # y=0 at bottom
+        q = np.flipud(q)
+        q[q <= 0] = 1e-12
+        log_q = np.log10(q)
+        norm = (log_q - log_min) / log_range
+        norm = np.clip(norm, 0.0, 1.0)
+        return (hot(norm) * 255).astype(np.uint8)
+
+    # Coordinate helpers for drawing on the downsampled image
+    def _px(x_m: float, y_m: float) -> Tuple[int, int]:
+        px = int(round((x_m - x[0]) / (x[-1] - x[0]) * (gif_width - 1)))
+        py = int(round((y_m - y[0]) / (y[-1] - y[0]) * (gif_height - 1)))
+        # PIL y is from top, but our image is already flipud, so y=0 is bottom
+        py = (gif_height - 1) - py
+        return max(0, min(px, gif_width - 1)), max(0, min(py, gif_height - 1))
+
+    frames: List[Image.Image] = []
+    for k, t_now in enumerate(frame_times):
+        rgba = _to_rgba(Q_frames[k])
+        img = Image.fromarray(rgba, mode="RGBA").convert("RGB")
+        draw = ImageDraw.Draw(img)
+
+        # Recent wobble trail
+        mask = (ts_full >= t_now - trail_time) & (ts_full <= t_now)
+        if mask.any():
+            pts = [_px(xf, yf) for xf, yf in zip(x_full[mask], y_full[mask])]
+            if len(pts) > 1:
+                draw.line(pts, fill=(0, 255, 255), width=1)
+            x_now, y_now = x_full[mask][-1], y_full[mask][-1]
+        else:
+            x_now, y_now = beam_at_time(path, wobble, t_now)
+
+        px, py = _px(x_now, y_now)
+        r = 4
+        draw.ellipse([px - r, py - r, px + r, py + r], fill=(0, 255, 255))
+
+        # Start / end markers
+        s1, s2 = _px(*path.start), _px(*path.end)
+        draw.ellipse([s1[0] - 2, s1[1] - 2, s1[0] + 2, s1[1] + 2], fill=(0, 255, 0))
+        draw.ellipse([s2[0] - 2, s2[1] - 2, s2[0] + 2, s2[1] + 2], fill=(0, 0, 255))
+
+        frames.append(img)
+
+    buf = io.BytesIO()
+    frames[0].save(
+        buf,
+        format="GIF",
+        save_all=True,
+        append_images=frames[1:],
+        duration=int(1000 / fps),
+        loop=0,
+        optimize=True,
+    )
+    return buf.getvalue()

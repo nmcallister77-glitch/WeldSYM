@@ -23,6 +23,7 @@ from weldsim.weld_path import (
     WobbleParams,
     beam_trajectory,
     heat_signature,
+    wobble_animation_gif,
 )
 
 
@@ -392,6 +393,40 @@ def _page_thermal_and_wobble():
             Ly = st.session_state["Ly"]
             st.pyplot(_plot_beam_path(x_traj, y_traj, Lx, Ly))
             st.pyplot(_plot_heat_signature(x, y, Q, x_traj, y_traj))
+
+            with st.expander("Run animation", expanded=True):
+                anim_col, anim_params = st.columns([1, 3])
+                with anim_col:
+                    run_anim = st.button("Run animation", type="secondary", width='stretch')
+                with anim_params:
+                    fps = st.slider("FPS", 1, 30, 10, 1)
+                    anim_dt = st.slider("Anim time step (s)", 0.02, 0.2, 0.1, 0.01)
+                    trail = st.slider("Trail length (s)", 0.01, 0.2, 0.05, 0.01)
+                if run_anim or "wobble_gif" in st.session_state:
+                    if run_anim:
+                        with st.spinner("Rendering animation..."):
+                            # Coarse grid for fast animation; visual quality is fine
+                            x_anim = np.linspace(0, Lx, max(41, min(81, len(x))))
+                            y_anim = np.linspace(0, Ly, max(21, min(41, len(y))))
+                            t_end_anim = min(st.session_state.get("t_end", 6.0), path.duration)
+                            gif = wobble_animation_gif(
+                                path=path,
+                                wobble=wobble,
+                                power=st.session_state["weld"].power,
+                                efficiency=st.session_state["weld"].efficiency,
+                                sigma=st.session_state["weld"].sigma,
+                                h=st.session_state["T1"],
+                                x=x_anim,
+                                y=y_anim,
+                                t_end=t_end_anim,
+                                frame_dt=anim_dt,
+                                trail_time=trail,
+                                heat_dt=0.005,
+                                fps=fps,
+                                gif_width=480,
+                            )
+                            st.session_state["wobble_gif"] = gif
+                    st.image(st.session_state["wobble_gif"], caption="Wobbled weld animation — brighter = more dwell time")
         else:
             st.info("Click **Go (draw heat signature)** on the **Setup** tab to generate the wobble preview.")
 
