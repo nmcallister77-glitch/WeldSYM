@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..heat_source import heat_source_at_point, heat_source_field
 from ..types import WeldParams, MaterialParams
+
+__all__ = ["run_2d_fd_thermal", "heat_source_at_point", "heat_source_field"]
 
 
 def run_2d_fd_thermal(
@@ -60,23 +63,8 @@ def run_2d_fd_thermal(
     for step in range(n_steps):
         t = step * dt
 
-        # Move heat source
-        if weld.direction == "x":
-            x_src = weld.start_pos[0] + weld.speed * t
-            y_src = weld.start_pos[1]
-        elif weld.direction == "y":
-            x_src = weld.start_pos[0]
-            y_src = weld.start_pos[1] + weld.speed * t
-        else:
-            raise ValueError("direction must be 'x' or 'y'")
-
-        # Compute heat source term Q(x, y, t) on the grid
-        Q = np.zeros_like(T)
-        for i in range(nx):
-            for j in range(ny):
-                Q[i, j] = heat_source_at_point(
-                    x[i], y[j], t, weld
-                )
+        # Heat source term Q(x, y, t) on the grid
+        Q = heat_source_field(x, y, t, weld)
 
         # Explicit update (interior points only)
         for i in range(1, nx - 1):
@@ -96,35 +84,3 @@ def run_2d_fd_thermal(
         T, T_new = T_new, T  # swap
 
     return x, y, T
-
-
-def heat_source_at_point(
-    x: float,
-    y: float,
-    t: float,
-    weld: WeldParams,
-) -> float:
-    """
-    Evaluate heat source (W/m^3) at a single (x, y, t) point.
-    Uses a simple 2D Gaussian in the plane; z is assumed 0.
-    """
-    if weld.direction == "x":
-        x_src = weld.start_pos[0] + weld.speed * t
-        y_src = weld.start_pos[1]
-    elif weld.direction == "y":
-        x_src = weld.start_pos[0]
-        y_src = weld.start_pos[1] + weld.speed * t
-    else:
-        raise ValueError("direction must be 'x' or 'y'")
-
-    dx = x - x_src
-    dy = y - y_src
-    r2 = dx**2 + dy**2
-
-    # Treat as surface heat flux spread over a small thickness h
-    h = 0.001  # m, artificial thickness
-    q_eff = weld.power * weld.efficiency
-    sigma = weld.sigma
-
-    q = (q_eff / (2 * np.pi * sigma**2 * h)) * np.exp(-r2 / (2 * sigma**2))
-    return q

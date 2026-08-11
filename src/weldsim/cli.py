@@ -5,10 +5,30 @@ from __future__ import annotations
 import argparse
 
 from .simulation import (
-    WeldParams,
     MaterialParams,
     ThermalSimulationConfig,
     run_thermal_simulation,
+)
+from .types import (
+    DEFAULT_EFFICIENCY,
+    DEFAULT_POWER,
+    DEFAULT_SPEED,
+    default_weld_params,
+)
+
+_DEFAULTS = ThermalSimulationConfig()
+
+_ARGUMENTS = (
+    ("--power", float, DEFAULT_POWER, "Power (W)"),
+    ("--efficiency", float, DEFAULT_EFFICIENCY, "Process efficiency"),
+    ("--speed", float, DEFAULT_SPEED, "Travel speed (m/s)"),
+    ("--t-end", float, _DEFAULTS.t_end, "Simulation time (s)"),
+    ("--dt", float, _DEFAULTS.dt, "Time step (s)"),
+    ("--nx", int, _DEFAULTS.nx, "Grid points in X"),
+    ("--ny", int, _DEFAULTS.ny, "Grid points in Y"),
+    ("--Lx", float, _DEFAULTS.Lx, "Plate length (m)"),
+    ("--Ly", float, _DEFAULTS.Ly, "Plate width (m)"),
+    ("--output", str, _DEFAULTS.output_file, "Output CSV file"),
 )
 
 
@@ -17,48 +37,10 @@ def main():
         prog="weldsim",
         description="Run a simple 2D welding thermal simulation.",
     )
-    parser.add_argument("--power", type=float, default=3000.0, help="Power (W)")
-    parser.add_argument(
-        "--efficiency", type=float, default=0.8, help="Process efficiency"
-    )
-    parser.add_argument(
-        "--speed", type=float, default=0.005, help="Travel speed (m/s)"
-    )
-    parser.add_argument(
-        "--t-end", type=float, default=10.0, help="Simulation time (s)"
-    )
-    parser.add_argument("--dt", type=float, default=0.05, help="Time step (s)")
-    parser.add_argument(
-        "--nx", type=int, default=51, help="Grid points in X"
-    )
-    parser.add_argument(
-        "--ny", type=int, default=26, help="Grid points in Y"
-    )
-    parser.add_argument(
-        "--Lx", type=float, default=0.1, help="Plate length (m)"
-    )
-    parser.add_argument(
-        "--Ly", type=float, default=0.05, help="Plate width (m)"
-    )
-    parser.add_argument(
-        "--output",
-        type=str,
-        default="results/temperature.csv",
-        help="Output CSV file",
-    )
+    for flag, arg_type, default, help_text in _ARGUMENTS:
+        parser.add_argument(flag, type=arg_type, default=default, help=help_text)
 
     args = parser.parse_args()
-
-    weld = WeldParams(
-        power=args.power,
-        efficiency=args.efficiency,
-        speed=args.speed,
-        start_pos=(0.01, args.Ly / 2),
-        direction="x",
-        sigma=0.002,
-    )
-
-    mat = MaterialParams()
 
     config = ThermalSimulationConfig(
         nx=args.nx,
@@ -67,8 +49,13 @@ def main():
         Ly=args.Ly,
         t_end=args.t_end,
         dt=args.dt,
-        weld=weld,
-        material=mat,
+        weld=default_weld_params(
+            args.Ly,
+            power=args.power,
+            efficiency=args.efficiency,
+            speed=args.speed,
+        ),
+        material=MaterialParams(),
         output_file=args.output,
     )
 
