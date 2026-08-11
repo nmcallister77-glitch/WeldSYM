@@ -2,55 +2,31 @@
 
 from __future__ import annotations
 
-import csv
-from pathlib import Path
+import argparse
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-
-def load_temperature_csv(path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Load temperature CSV and reconstruct 2D grid."""
-    xs = []
-    ys = []
-    temps = []
-
-    with open(path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            xs.append(float(row["x_m"]))
-            ys.append(float(row["y_m"]))
-            temps.append(float(row["T_K"]))
-
-    x = np.array(xs)
-    y = np.array(ys)
-    T = np.array(temps)
-
-    # Infer grid shape
-    nx = len(np.unique(x))
-    ny = len(np.unique(y))
-    T = T.reshape((nx, ny))
-
-    x_unique = np.sort(np.unique(x))
-    y_unique = np.sort(np.unique(y))
-
-    return x_unique, y_unique, T
+from weldsim.io import (
+    DEFAULT_TEMPERATURE_CSV,
+    DEFAULT_TEMPERATURE_PNG,
+    ensure_parent_dir,
+    load_temperature_csv,
+)
 
 
 def main():
-    import argparse
-
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--input",
         type=str,
-        default="results/temperature.csv",
+        default=DEFAULT_TEMPERATURE_CSV,
         help="Input CSV file",
     )
     parser.add_argument(
         "--output",
         type=str,
-        default="results/temperature.png",
+        default=DEFAULT_TEMPERATURE_PNG,
         help="Output PNG file",
     )
     args = parser.parse_args()
@@ -66,7 +42,7 @@ def main():
     ax.set_title("Temperature field (K)")
     fig.colorbar(cmap, ax=ax, label="Temperature (K)")
 
-    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    ensure_parent_dir(args.output)
     fig.savefig(args.output, dpi=150)
     print(f"Plot saved to {args.output}")
 
