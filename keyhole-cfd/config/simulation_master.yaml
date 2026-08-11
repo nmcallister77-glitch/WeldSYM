@@ -184,13 +184,13 @@ time:
   start: 0.0
   weld_duration: 5.333                # s (80mm / 15mm/s)
   cooldown_duration: 15.0             # s
-  end: 20.333
+  end: 5.0e-4
   initial_delta_t: 1.0e-7
   max_delta_t: 5.0e-6
   max_courant: 0.4
   max_alpha_courant: 0.4
   adjust_time_step: true
-  write_interval: 1.0e-4              # s (0.1 ms during weld)
+  write_interval: 5.0e-5              # s (50 us during weld)
   write_format: "binary"
   purge_write: 0
 
@@ -237,6 +237,6 @@ validation:
 # Parallel Execution
 # -----------------------------------------------------------------------------
 parallel:
-  num_processors: 32
+  num_processors: 8
   decomposition_method: "scotch"
   precice_solid_cores: 8

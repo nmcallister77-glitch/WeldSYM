@@ -61,12 +61,50 @@ def patch_control_dict(cfg: dict, case_dir: Path) -> None:
     time_cfg = cfg["time"]
     text = ctrl.read_text(encoding="utf-8")
     import re
-    text = re.sub(r"(endTime\s+)[\d.]+", rf"\g<1>{time_cfg['end']}", text, count=1)
+    text = re.sub(r"(startFrom\s+)\w+", rf"\g<1>startTime", text, count=1)
+    text = re.sub(r"(startTime\s+)[\d.e+-]+", rf"\g<1>{time_cfg['start']}", text, count=1)
+    text = re.sub(r"(stopAt\s+)\w+", rf"\g<1>endTime", text, count=1)
+    text = re.sub(r"(endTime\s+)[\d.e+-]+", rf"\g<1>{time_cfg['end']}", text, count=1)
     text = re.sub(r"(deltaT\s+)[\d.e+-]+", rf"\g<1>{time_cfg['initial_delta_t']}", text, count=1)
     text = re.sub(r"(maxDeltaT\s+)[\d.e+-]+", rf"\g<1>{time_cfg['max_delta_t']}", text, count=1)
     text = re.sub(r"(writeInterval\s+)[\d.e+-]+", rf"\g<1>{time_cfg['write_interval']}", text, count=1)
     text = re.sub(r"(maxCo\s+)[\d.]+", rf"\g<1>{time_cfg['max_courant']}", text, count=1)
+    text = re.sub(r"(maxAlphaCo\s+)[\d.]+", rf"\g<1>{time_cfg.get('max_alpha_courant', time_cfg['max_courant'])}", text, count=1)
+    text = re.sub(r"(writeFormat\s+)\w+", rf"\g<1>{cfg.get('output', {}).get('write_format', 'ascii')}", text, count=1)
+    text = re.sub(r"(writePrecision\s+)\d+", rf"\g<1>6", text, count=1)
     ctrl.write_text(text, encoding="utf-8")
+
+
+def factor_cores(n: int) -> tuple[int, int, int]:
+    """Return a simple (x y z) decomposition for n MPI ranks."""
+    import math
+    n = int(n)
+    presets = {1: (1, 1, 1), 2: (2, 1, 1), 4: (2, 2, 1),
+               8: (2, 2, 2), 16: (4, 2, 2), 32: (4, 4, 2)}
+    if n in presets:
+        return presets[n]
+    for z in [1, 2, 3, 4, 5, 6, 7, 8]:
+        rem = n // z
+        if rem * z != n:
+            continue
+        for y in range(1, int(math.isqrt(rem)) + 1):
+            if rem % y == 0:
+                x = rem // y
+                return (x, y, z)
+    return (1, 1, n)
+
+
+def patch_decompose_par_dict(cfg: dict, case_dir: Path) -> None:
+    dp = case_dir / "system" / "decomposeParDict"
+    if not dp.exists():
+        return
+    nprocs = int(cfg["parallel"]["num_processors"])
+    x, y, z = factor_cores(nprocs)
+    text = dp.read_text(encoding="utf-8")
+    import re
+    text = re.sub(r"(numberOfSubdomains\s+)\d+", rf"\g<1>{nprocs}", text, count=1)
+    text = re.sub(r"(n\s+\()[\d\s]+(\);)", rf"\g<1>{x} {y} {z}\2", text, count=1)
+    dp.write_text(text, encoding="utf-8")
 
 
 def main() -> int:
@@ -87,6 +125,7 @@ def main() -> int:
     case_dir = root / args.case_dir
     write_openfoam_constants(cfg, case_dir, material)
     patch_control_dict(cfg, case_dir)
+    patch_decompose_par_dict(cfg, case_dir)
 
     if args.output_case:
         out = root / args.output_case
