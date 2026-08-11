@@ -78,7 +78,7 @@ def set_yaml_value(text: str, section: str, key: str, value: str) -> str:
             if line and not line.startswith("  "):
                 break
             if re.match(rf"{re.escape(key)}:\s*", stripped):
-                lines[i] = re.sub(rf"(\s*{re.escape(key)}:\s*).*", rf"\1{value}", line)
+                lines[i] = re.sub(rf"(\s*{re.escape(key)}:\s*).*", rf"\g<1>{value}", line)
                 break
     out = "\n".join(lines)
     if text.endswith("\n"):
@@ -517,7 +517,7 @@ class LaserKeyholeApp:
         bad = []
         for key, var in self.values.items():
             try:
-                float(var.get())
+                float(var.get().strip())
             except ValueError:
                 bad.append(key.replace("_", " "))
         if bad:
@@ -542,16 +542,16 @@ class LaserKeyholeApp:
         try:
             text = path.read_text(encoding="utf-8")
             updates = [
-                ("laser", "power", self.values["laser_power"].get()),
-                ("laser", "travel_speed", self.values["laser_speed"].get()),
-                ("laser", "focus_radius_w0", self.values["laser_w0"].get()),
-                ("time", "end", self.values["time_end"].get()),
-                ("time", "initial_delta_t", self.values["time_initial_delta_t"].get()),
-                ("time", "max_delta_t", self.values["time_max_delta_t"].get()),
-                ("time", "max_courant", self.values["time_max_co"].get()),
-                ("time", "max_alpha_courant", self.values["time_max_alpha_co"].get()),
-                ("time", "write_interval", self.values["time_write_interval"].get()),
-                ("parallel", "num_processors", self.values["parallel_cores"].get()),
+                ("laser", "power", self.values["laser_power"].get().strip()),
+                ("laser", "travel_speed", self.values["laser_speed"].get().strip()),
+                ("laser", "focus_radius_w0", self.values["laser_w0"].get().strip()),
+                ("time", "end", self.values["time_end"].get().strip()),
+                ("time", "initial_delta_t", self.values["time_initial_delta_t"].get().strip()),
+                ("time", "max_delta_t", self.values["time_max_delta_t"].get().strip()),
+                ("time", "max_courant", self.values["time_max_co"].get().strip()),
+                ("time", "max_alpha_courant", self.values["time_max_alpha_co"].get().strip()),
+                ("time", "write_interval", self.values["time_write_interval"].get().strip()),
+                ("parallel", "num_processors", self.values["parallel_cores"].get().strip()),
             ]
             for section, key, value in updates:
                 text = set_yaml_value(text, section, key, value)
