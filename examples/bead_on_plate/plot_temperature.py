@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import argparse
 import csv
+import sys
 from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
+
+from weldsim.exceptions import InputDataError, WeldSimError
+
+REQUIRED_COLUMNS = ("x_m", "y_m", "T_K")
 
 
 def load_temperature_csv(path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -15,12 +21,33 @@ def load_temperature_csv(path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]
     ys = []
     temps = []
 
-    with open(path, "r", encoding="utf-8") as f:
+    try:
+        handle = open(path, "r", encoding="utf-8")
+    except OSError as exc:
+        raise InputDataError(f"Could not open temperature CSV {path!r}: {exc}") from exc
+
+    with handle as f:
         reader = csv.DictReader(f)
-        for row in reader:
-            xs.append(float(row["x_m"]))
-            ys.append(float(row["y_m"]))
-            temps.append(float(row["T_K"]))
+        if reader.fieldnames is None:
+            raise InputDataError(f"Temperature CSV {path!r} is empty.")
+        missing = [c for c in REQUIRED_COLUMNS if c not in reader.fieldnames]
+        if missing:
+            raise InputDataError(
+                f"Temperature CSV {path!r} is missing column(s) {', '.join(missing)}; "
+                f"found {', '.join(reader.fieldnames)}."
+            )
+        for line_no, row in enumerate(reader, start=2):
+            try:
+                xs.append(float(row["x_m"]))
+                ys.append(float(row["y_m"]))
+                temps.append(float(row["T_K"]))
+            except (TypeError, ValueError) as exc:
+                raise InputDataError(
+                    f"{path}:{line_no}: could not parse row {row!r}: {exc}"
+                ) from exc
+
+    if not temps:
+        raise InputDataError(f"Temperature CSV {path!r} contains no data rows.")
 
     x = np.array(xs)
     y = np.array(ys)
@@ -29,6 +56,11 @@ def load_temperature_csv(path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]
     # Infer grid shape
     nx = len(np.unique(x))
     ny = len(np.unique(y))
+    if nx * ny != T.size:
+        raise InputDataError(
+            f"Temperature CSV {path!r} is not a complete rectangular grid: "
+            f"{T.size} rows cannot be reshaped to {nx} x {ny}."
+        )
     T = T.reshape((nx, ny))
 
     x_unique = np.sort(np.unique(x))
@@ -37,9 +69,7 @@ def load_temperature_csv(path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]
     return x_unique, y_unique, T
 
 
-def main():
-    import argparse
-
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--input",
@@ -53,9 +83,17 @@ def main():
         default="results/temperature.png",
         help="Output PNG file",
     )
-    args = parser.parse_args()
+    return parser
 
-    x, y, T = load_temperature_csv(args.input)
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+
+    try:
+        x, y, T = load_temperature_csv(args.input)
+    except WeldSimError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
     X, Y = np.meshgrid(x, y, indexing="ij")
 
@@ -66,10 +104,18 @@ def main():
     ax.set_title("Temperature field (K)")
     fig.colorbar(cmap, ax=ax, label="Temperature (K)")
 
-    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(args.output, dpi=150)
+    try:
+        Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(args.output, dpi=150)
+    except OSError as exc:
+        print(f"error: could not write plot to {args.output!r}: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        plt.close(fig)
+
     print(f"Plot saved to {args.output}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
