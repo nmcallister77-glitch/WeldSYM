@@ -4,6 +4,8 @@
 #include "fvMesh.H"
 #include "volFields.H"
 #include "IOdictionary.H"
+#include "autoPtr.H"
+#include "recoilPressure.H"
 
 /*---------------------------------------------------------------------------*\
                     Class laserHeatSource Declaration

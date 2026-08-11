@@ -27,7 +27,8 @@ vapor
 
 sigma
 {
-    metal_vapor     1.35;
+    type            constant;
+    sigma           1.35;
 }
 
 // Surface tension force via CSF; Marangoni via dSigmaDT in thermo

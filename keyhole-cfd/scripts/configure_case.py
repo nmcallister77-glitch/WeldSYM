@@ -48,7 +48,7 @@ def write_openfoam_constants(cfg: dict, case_dir: Path, material: dict) -> None:
     if laser_path.exists():
         text = laser_path.read_text(encoding="utf-8")
         import re
-        text = re.sub(r"(power\s+)\d+", rf"\g<1>{laser['power']}", text, count=1)
+        text = re.sub(r"(power\s+)[\d.eE+-]+", rf"\g<1>{laser['power']}", text, count=1)
         text = re.sub(r"(travelSpeed\s+)[\d.e+-]+", rf"\g<1>{laser['travel_speed']}", text, count=1)
         text = re.sub(r"(w0\s+)[\d.e+-]+", rf"\g<1>{laser['focus_radius_w0']}", text, count=1)
         laser_path.write_text(text, encoding="utf-8")

@@ -1,3 +1,4 @@
+#include "fvCFD.H"
 #include "laserHeatSource.H"
 #include "recoilPressure.H"
 #include "mathematicalConstants.H"
@@ -78,7 +79,7 @@ void laserHeatSource::applyAbsorbedFlux
 
     // Normalisation so total integrated power = P (approximate for 3D Gaussian).
     const scalar norm = P
-        / (pow(2.0*constant::mathematical::pi, 1.5)*sigma*sigma*sigmaZ);
+        / (Foam::pow(2.0*constant::mathematical::pi, 1.5)*sigma*sigma*sigmaZ);
 
     forAll(laserHeatFlux, cellI)
     {

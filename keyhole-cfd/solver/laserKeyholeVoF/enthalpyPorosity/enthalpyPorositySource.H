@@ -42,6 +42,11 @@ class enthalpyPorositySource
             const volScalarField& liquidFraction
         ) const;
 
+        volScalarField momentumDampingCoeff
+        (
+            const volScalarField& liquidFraction
+        ) const;
+
         void applyVaporizationSource
         (
             volScalarField& alphaVapor,

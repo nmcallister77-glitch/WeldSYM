@@ -2,18 +2,19 @@
     // Temperature equation: rho*Cp*(dT/dt + U.Grad T) = Div(kEff Grad T) + Q_laser + ...
     // laserHeatFlux is a cell-centred volumetric source [W/m^3].
 
-    alpha = kappa/(rho*Cp);
-    kEff = rho*Cp*alpha;
-    rhoCpPhi = fvc::interpolate(rho*Cp)*phi;
+    rhoCp = rho*Cp;
+    alpha = kappa/(rhoCp);
+    kEff = rhoCp*alpha;
+    rhoCpPhi = rhoPhi*Cp;
 
     fvScalarMatrix TEqn
     (
-        Cp*fvm::ddt(rho, T)
+        fvm::ddt(rhoCp, T)
       + fvm::div(rhoCpPhi, T)
       - fvm::laplacian(kEff, T)
      ==
         laserHeatFlux
-      + fvOptions(T)
+      + fvOptions(rhoCp, T)
     );
 
     TEqn.relax();

@@ -1,3 +1,4 @@
+#include "fvCFD.H"
 #include "rayTracer.H"
 #include "Random.H"
 

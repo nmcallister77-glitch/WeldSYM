@@ -1,3 +1,4 @@
+#include "fvCFD.H"
 #include "enthalpyPorositySource.H"
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
@@ -80,6 +81,31 @@ Foam::volVectorField enthalpyPorositySource::momentumDamping
         }
     }
     return drag;
+}
+
+
+Foam::volScalarField enthalpyPorositySource::momentumDampingCoeff
+(
+    const volScalarField& liquidFraction
+) const
+{
+    volScalarField coeff
+    (
+        IOobject("porousCoeff", mesh_.time().timeName(), mesh_),
+        mesh_,
+        dimensionedScalar(dimDensity/dimTime, Zero)
+    );
+
+    forAll(liquidFraction, cellI)
+    {
+        const scalar fl = liquidFraction[cellI];
+        if (fl < 1.0 - ROOTVSMALL)
+        {
+            coeff[cellI] = beta_ * sqr(1.0 - fl) / (pow3(fl) + epsilon_);
+        }
+    }
+
+    return coeff;
 }
 
 

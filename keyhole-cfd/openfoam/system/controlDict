@@ -14,18 +14,18 @@ application     laserKeyholeVoF;
 startFrom       startTime;
 startTime       0;
 stopAt          endTime;
-endTime         20.333;
+endTime         5e-4;
 
 deltaT          1e-07;
 adjustTimeStep  yes;
 maxCo           0.4;
 maxAlphaCo      0.4;
-maxDeltaT       5e-06;
+maxDeltaT       5e-6;
 
 writeControl    adjustableRunTime;
-writeInterval   0.0001;
+writeInterval   5e-5;
 purgeWrite      0;
-writeFormat     binary;
+writeFormat     ascii;
 writePrecision  8;
 writeCompression off;
 
@@ -36,37 +36,11 @@ runTimeModifiable true;
 
 functions
 {
-    #includeFunc "surfaces"
-    surfaces
-    {
-        type            surfaces;
-        libs            (sampling);
-        writeControl    writeTime;
-        surfaceFormat   vtk;
-        fields          (T U p alpha.metal alpha.vapor);
-        interpolationScheme cellPoint;
-        surfaces
-        (
-            weldCenterPlane
-            {
-                type        cuttingPlane;
-                planeType   pointAndNormal;
-                point       (0 0 0.003);
-                normal      (0 1 0);
-            }
-            topSurface
-            {
-                type        patch;
-                patches     (top);
-            }
-        );
-    }
-
     fieldMinMax
     {
         type            fieldMinMax;
         libs            (fieldFunctionObjects);
-        fields          (T alpha.metal);
+        fields          (T alpha.metal liquidFraction recoilPressure alpha.vapor);
         writeControl    timeStep;
         writeInterval   10;
     }
@@ -79,27 +53,17 @@ functions
         writeInterval   5;
         setFormat       raw;
         interpolationScheme cellPoint;
-        fields          (alpha.vapor T);
+        fields          (T);
         sets
         (
             beamAxis
             {
-                type    lineUniform;
-                start   (0 0 0);
-                end     (0 0 -0.008);
+                type    uniform;
+                axis    distance;
+                start   (0.04 0 0);
+                end     (0.04 0 -0.008);
                 nPoints 200;
             }
         );
-    }
-
-    forcesRecoil
-    {
-        type            surfaceFieldValue;
-        libs            (fieldFunctionObjects);
-        writeControl    writeTime;
-        regionType      patch;
-        name            keyholeInterface;
-        operation       sum;
-        fields          (recoilPressure);
     }
 }

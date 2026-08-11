@@ -17,6 +17,19 @@
         fvc::makeRelative(phiHbyA, U);
     }
 
+    surfaceScalarField phig
+    (
+        (
+            mixture.surfaceTensionForce()
+          - ghf*fvc::snGrad(rho)
+        )*rAUf*mesh.magSf()
+    );
+
+    phiHbyA += phig;
+
+    // Update the pressure BCs to ensure flux consistency
+    constrainPressure(p_rgh, U, phiHbyA, rAUf, MRF);
+
     while (pimple.correctNonOrthogonal())
     {
         fvScalarMatrix p_rghEqn
@@ -25,18 +38,33 @@
         );
 
         p_rghEqn.setReference(pRefCell, pRefValue);
-        p_rghEqn.solve(p_rgh.select(pimple.finalInnerIter()));
+
+        p_rghEqn.solve(mesh.solver(p_rgh.select(pimple.finalInnerIter())));
 
         if (pimple.finalNonOrthogonalIter())
         {
             phi = phiHbyA - p_rghEqn.flux();
+
+            p_rgh.relax();
+
+            U = HbyA + rAU*fvc::reconstruct((phig - p_rghEqn.flux())/rAUf);
+            U.correctBoundaryConditions();
+            fvOptions.correct(U);
         }
     }
 
     #include "continuityErrs.H"
 
     p = p_rgh + rho*gh;
-    U = HbyA - rAU*fvc::grad(p_rgh);
-    U.correctBoundaryConditions();
-    fvOptions.correct(U);
+
+    if (p_rgh.needReference())
+    {
+        p += dimensionedScalar
+        (
+            "p",
+            p.dimensions(),
+            pRefValue - getRefCellValue(p, pRefCell)
+        );
+        p_rgh = p - rho*gh;
+    }
 }

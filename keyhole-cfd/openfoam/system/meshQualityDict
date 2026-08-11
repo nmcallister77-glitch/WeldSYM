@@ -1,5 +1,5 @@
 /*--------------------------------*- C++ -*----------------------------------*\
-  meshQualityDict — snappyHexMesh quality thresholds
+  meshQualityDict -- snappyHexMesh quality thresholds
 \*---------------------------------------------------------------------------*/
 
 maxNonOrtho         65;
@@ -9,9 +9,13 @@ maxConcave          80;
 minVol              1e-30;
 minTetQuality       1e-30;
 minArea             0;
+minTwist            -1;
+minEdgeLength       -1;
 minDeterminant      0.001;
 minFaceWeight       0.05;
 minVolRatio         0.01;
 minTriangleTwist    -1;
 nSmoothScale        4;
 errorReduction      0.75;
+
+// ************************************************************************* //

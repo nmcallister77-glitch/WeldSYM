@@ -30,6 +30,7 @@ divSchemes
     div(rhoPhi,alpha)               Gauss interfaceCompression vanLeer 1;
     div(rhoPhi,alpha.metal)         Gauss interfaceCompression vanLeer 1;
     div(rhoPhi,alpha.vapor)         Gauss interfaceCompression vanLeer 1;
+    div(phirb,alpha)                Gauss interfaceCompression vanLeer 1;
     div(rhoPhi,T)                   Gauss linearUpwind grad(T);
     div(rhoCpPhi,T)                 Gauss linearUpwind grad(T);
     div(rhoPhi,h)                   Gauss linearUpwind grad(h);

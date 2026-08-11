@@ -1,3 +1,4 @@
+#include "fvCFD.H"
 #include "recoilPressure.H"
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //

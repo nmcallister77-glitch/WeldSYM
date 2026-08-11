@@ -15,7 +15,7 @@ FoamFile
 }
 
 castellatedMesh true;
-snap            true;
+snap            false;
 addLayers       false;
 
 geometry
@@ -30,22 +30,22 @@ geometry
     keyholeCore
     {
         type   searchableBox;
-        min    (-0.002 -0.001 -0.006);
-        max    ( 0.002  0.001  0.001);
+        min    (0.038 -0.001 -0.006);
+        max    (0.042  0.001  0.001);
     }
 
     meltPoolZone
     {
         type   searchableBox;
-        min    (-0.005 -0.004 -0.006);
-        max    ( 0.010  0.004  0.002);
+        min    (0.035 -0.004 -0.006);
+        max    (0.045  0.004  0.002);
     }
 
     hazBand
     {
         type   searchableBox;
-        min    (-0.010 -0.010 -0.006);
-        max    ( 0.020  0.010  0.005);
+        min    (0.030 -0.010 -0.006);
+        max    (0.050  0.010  0.005);
     }
 
     // Optional: replace boxes with triSurface for curved workpiece
@@ -58,8 +58,8 @@ geometry
 
 castellatedMeshControls
 {
-    maxLocalCells        1000000;
-    maxGlobalCells       50000000;
+    maxLocalCells        10000000;
+    maxGlobalCells       10000000;
     minRefinementCells   10;
     maxLoadUnbalance     0.10;
     nCellsBetweenLevels  3;
@@ -68,13 +68,9 @@ castellatedMeshControls
     (
     );
 
+    // No internal wall; the metal/gas interface is handled by VOF setFields.
     refinementSurfaces
     {
-        workpiece
-        {
-            level (2 3);
-            patchInfo { type wall; }
-        }
     }
 
     resolveFeatureAngle 30;
@@ -84,7 +80,7 @@ castellatedMeshControls
         keyholeCore
         {
             mode    inside;
-            levels  ((1e15 5));   // max refinement inside keyhole box
+            levels  ((1e15 4));   // coarser keyhole core for faster run
         }
 
         meltPoolZone
@@ -103,6 +99,7 @@ castellatedMeshControls
     locationInMesh (0.001 0.0 -0.003);
 
     allowFreeStandingZoneGeneration false;
+    allowFreeStandingZoneFaces    true;
 }
 
 snapControls

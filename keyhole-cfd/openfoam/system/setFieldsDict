@@ -1,0 +1,32 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  setFieldsDict — initialise metal (alpha.metal = 1) in the workpiece
+                and shield gas (alpha.metal = 0) in the plenum above.
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      setFieldsDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+defaultFieldValues
+(
+    volScalarFieldValue alpha.metal 0
+);
+
+regions
+(
+    boxToCell
+    {
+        // Workpiece occupies z <= 0.0; allow a tiny tolerance for cell centres
+        box (-0.001 -0.021 -0.007) (0.081 0.021 1e-6);
+        fieldValues
+        (
+            volScalarFieldValue alpha.metal 1
+        );
+    }
+);
+
+// ************************************************************************* //
