@@ -31,12 +31,12 @@ def write_openfoam_constants(cfg: dict, case_dir: Path, material: dict) -> None:
     if thermo_path.exists():
         text = thermo_path.read_text(encoding="utf-8")
         replacements = {
-            "molWeight": f"molWeight       {material.get('vapor', {}).get('molar_mass', 0.0479) * 1000:.1f}",
-            "Ts": f"Ts              {pc['solidus_temperature']}",
-            "Tl": f"Tl              {pc['liquidus_temperature']}",
-            "Tb": f"Tb              {pc['boiling_temperature']}",
-            "Hf": f"Hf              {pc['latent_heat_fusion']}",
-            "Hv": f"Hv              {pc['latent_heat_vaporization']}",
+            "molWeight": f"molWeight       {material.get('vapor', {}).get('molar_mass', 0.0479) * 1000:.1f};",
+            "Ts": f"Ts              {pc['solidus_temperature']};",
+            "Tl": f"Tl              {pc['liquidus_temperature']};",
+            "Tb": f"Tb              {pc['boiling_temperature']};",
+            "Hf": f"Hf              {pc['latent_heat_fusion']};",
+            "Hv": f"Hv              {pc['latent_heat_vaporization']};",
         }
         for key, val in replacements.items():
             import re

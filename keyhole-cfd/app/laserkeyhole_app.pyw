@@ -32,6 +32,7 @@ KEYHOLE_CFD_DIR = APP_DIR.parent
 OPENFOAM_DIR = KEYHOLE_CFD_DIR / "openfoam"
 SYSTEM_DIR = OPENFOAM_DIR / "system"
 CONSTANT_DIR = OPENFOAM_DIR / "constant"
+ZERO_DIR = OPENFOAM_DIR / "0"
 CONFIG_DIR = KEYHOLE_CFD_DIR / "config"
 MATERIALS_DIR = KEYHOLE_CFD_DIR / "materials"
 SCRIPTS_DIR = KEYHOLE_CFD_DIR / "scripts"
@@ -151,6 +152,7 @@ class LaserKeyholeApp:
         self.wsl_solver_root_var = tk.StringVar(
             value="/home/nmcal/OpenFOAM/nmcal-v2306/applications/solvers"
         )
+        self.run_setfields_var = tk.BooleanVar(value=True)
 
         self.values = {
             "laser_power": tk.StringVar(value="3000.0"),
@@ -422,6 +424,17 @@ class LaserKeyholeApp:
         self.recon_button = ttk.Button(frame, text="Reconstruct latest", command=self.on_reconstruct)
         self.recon_button.grid(row=0, column=5, padx=5, pady=5)
 
+        ttk.Separator(frame, orient=tk.HORIZONTAL).grid(
+            row=1, column=0, columnspan=6, sticky=tk.EW, pady=(8, 4)
+        )
+
+        self.setfields_check = ttk.Checkbutton(
+            frame,
+            text="Run setFields before decompose (required for a fresh metal/gas split)",
+            variable=self.run_setfields_var,
+        )
+        self.setfields_check.grid(row=2, column=0, columnspan=6, sticky=tk.W, padx=5)
+
     def _build_log_section(self, parent):
         parent.columnconfigure(0, weight=1)
         parent.rowconfigure(0, weight=1)
@@ -632,29 +645,36 @@ class LaserKeyholeApp:
     def on_save_config(self):
         self.save_config_to_yaml()
 
-    def _configure_command(self, cfg: AppConfig) -> str:
-        """Return bash snippet that copies OpenFOAM files into the WSL case and runs configure_case.py."""
+    def _prepare_command(self, cfg: AppConfig) -> str:
+        """Return bash snippet that copies OpenFOAM files into the WSL case, configures, and (optionally) sets fields."""
         wsl_case = cfg.wsl_case
         wsl_system = f"{wsl_case}/system"
         wsl_constant = f"{wsl_case}/constant"
+        wsl_zero = f"{wsl_case}/0"
         win_system = wsl_path(SYSTEM_DIR)
         win_constant = wsl_path(CONSTANT_DIR)
+        win_zero = wsl_path(ZERO_DIR)
         wsl_cfg = wsl_path(CONFIG_DIR)
         wsl_mat = wsl_path(MATERIALS_DIR)
         wsl_script = wsl_path(SCRIPTS_DIR / "configure_case.py")
         of_env = "source /usr/lib/openfoam/openfoam2306/etc/bashrc"
-        return (
+
+        cmd = (
             f"{of_env} && "
-            f"mkdir -p {wsl_system} {wsl_constant} {wsl_case}/scripts && "
+            f"mkdir -p {wsl_system} {wsl_constant} {wsl_zero} {wsl_case}/scripts && "
             f"cp -r {wsl_cfg} {wsl_case}/ && "
             f"cp -r {wsl_mat} {wsl_case}/ && "
             f"cp {wsl_script} {wsl_case}/scripts/ && "
             f"cp {win_system}/* {wsl_system}/ && "
             f"cp {win_constant}/* {wsl_constant}/ && "
+            f"cp {win_zero}/* {wsl_zero}/ && "
             f"python3 {wsl_case}/scripts/configure_case.py "
             f"--config {wsl_case}/config/simulation_master.yaml "
             f"--case-dir {wsl_case}"
         )
+        if self.run_setfields_var.get():
+            cmd += f" && cd {wsl_case} && setFields"
+        return cmd
 
     def on_rebuild_solver(self):
         cfg = AppConfig(
@@ -681,7 +701,7 @@ class LaserKeyholeApp:
             wsl_case=self.wsl_case_var.get(),
             wsl_solver_root=self.wsl_solver_root_var.get(),
         )
-        command = self._configure_command(cfg) + f" && cd {cfg.wsl_case} && decomposePar -force"
+        command = self._prepare_command(cfg) + f" && cd {cfg.wsl_case} && decomposePar -force"
         self.run_command(command, state_text="Configuring + decomposing")
 
     def on_run(self):
@@ -696,7 +716,7 @@ class LaserKeyholeApp:
 
         solver_cmd = f"mpirun --oversubscribe -np {nprocs} laserKeyholeVoF -parallel"
         command = (
-            f"{self._configure_command(cfg)} && "
+            f"{self._prepare_command(cfg)} && "
             f"cd {cfg.wsl_case} && "
             f"decomposePar -force && "
             f"{solver_cmd}"

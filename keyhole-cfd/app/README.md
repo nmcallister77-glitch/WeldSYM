@@ -19,7 +19,9 @@ If you need to see a console for debugging, use `RunLaserKeyholeApp.bat`.
 - Loads common settings from `keyhole-cfd/config/simulation_master.yaml`.
 - Lets you edit laser power, travel speed, focus radius, run time, time-step controls, and number of MPI cores.
 - Saves those values back to `simulation_master.yaml` and patches the OpenFOAM case.
-- Copies `config/`, `materials/`, `scripts/configure_case.py`, `system/`, and `constant/` into the WSL case.
+- Copies `config/`, `materials/`, `scripts/configure_case.py`, `system/`, `constant/`, and `0/` into the WSL case.
+- Optionally runs `setFields` to initialise the metal/gas split (`alpha.metal`).
+- Runs `configure_case.py` to patch `controlDict`, `laserHeatSource`, `decomposeParDict`, and thermophysical properties.
 - Runs `decomposePar -force`.
 - Runs `mpirun --oversubscribe -np <N> laserKeyholeVoF -parallel`.
 - Provides Stop, Reconstruct latest, and Rebuild solver buttons.
@@ -28,8 +30,8 @@ If you need to see a console for debugging, use `RunLaserKeyholeApp.bat`.
 
 - **Save config**: write the fields back to `simulation_master.yaml` only.
 - **Rebuild solver**: copy `laserKeyholeVoF` source to the WSL OpenFOAM tree and `wmake` it.
-- **Configure + Decompose**: patch the case and generate the `processor*` directories.
-- **Run simulation**: patch, decompose, and start the parallel run.
+- **Configure + Decompose**: copy `0/`, patch the case, run `setFields` if enabled, and generate the `processor*` directories.
+- **Run simulation**: copy `0/`, patch, `setFields`, decompose, and start the parallel run.
 - **Stop**: terminate the currently running WSL command.
 - **Reconstruct latest**: run `reconstructPar -latestTime` on the WSL case.
 
@@ -37,4 +39,4 @@ If you need to see a console for debugging, use `RunLaserKeyholeApp.bat`.
 
 - The app assumes the WSL distro is `Ubuntu-24.04` and the WSL case dir is `/home/nmcal/welding-cases/keyhole-cfd` (i.e., the OpenFOAM case is the top-level `keyhole-cfd` directory in WSL). Change these in the GUI if your setup differs.
 - The mesh (`constant/polyMesh/`) is not copied from Windows; it is expected to already exist in the WSL case.
-- The `0/` initial time directory is not overwritten by the app. Use the OpenFOAM `setFields` command in WSL if you need to regenerate initial metal/gas fields.
+- The `0/` directory is copied from Windows before each run. Leave the "Run setFields" checkbox enabled to re-initialise the metal/gas split from `system/setFieldsDict`.
