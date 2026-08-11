@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import sys
+from typing import Sequence
 
+from .exceptions import WeldSimError
 from .simulation import (
     WeldParams,
     MaterialParams,
@@ -11,8 +14,13 @@ from .simulation import (
     run_thermal_simulation,
 )
 
+EXIT_OK = 0
+EXIT_ERROR = 1
+EXIT_USAGE = 2
+EXIT_INTERRUPTED = 130
 
-def main():
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="weldsim",
         description="Run a simple 2D welding thermal simulation.",
@@ -47,7 +55,15 @@ def main():
         help="Output CSV file",
     )
 
-    args = parser.parse_args()
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.output.strip() == "":
+        parser.error("--output must not be empty")
 
     weld = WeldParams(
         power=args.power,
@@ -73,10 +89,19 @@ def main():
     )
 
     print("Running 2D thermal simulation...")
-    result = run_thermal_simulation(config)
+    try:
+        result = run_thermal_simulation(config)
+    except WeldSimError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_USAGE if isinstance(exc, ValueError) else EXIT_ERROR
+    except KeyboardInterrupt:
+        print("Interrupted.", file=sys.stderr)
+        return EXIT_INTERRUPTED
+
     print(f"Simulation complete. Output: {args.output}")
     print(f"Temperature range: {result['T'].min():.1f} K – {result['T'].max():.1f} K")
+    return EXIT_OK
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
