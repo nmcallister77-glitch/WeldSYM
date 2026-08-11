@@ -9,7 +9,7 @@
         fvm::ddt(rho, U) + fvm::div(rhoPhi, U)
       + MRF.DDt(rho, U)
       + turbulence->divDevRhoReff(rho, U)
-      + fvm::Sp(-porousCoeff, U)
+      + fvm::Sp(porousCoeff, U)
      ==
         fvOptions(rho, U)
       + recoilSource
