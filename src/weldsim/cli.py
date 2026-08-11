@@ -49,31 +49,35 @@ def main():
 
     args = parser.parse_args()
 
-    weld = WeldParams(
-        power=args.power,
-        efficiency=args.efficiency,
-        speed=args.speed,
-        start_pos=(0.01, args.Ly / 2),
-        direction="x",
-        sigma=0.002,
-    )
+    try:
+        weld = WeldParams(
+            power=args.power,
+            efficiency=args.efficiency,
+            speed=args.speed,
+            start_pos=(0.01, args.Ly / 2),
+            direction="x",
+            sigma=0.002,
+        )
 
-    mat = MaterialParams()
+        mat = MaterialParams()
 
-    config = ThermalSimulationConfig(
-        nx=args.nx,
-        ny=args.ny,
-        Lx=args.Lx,
-        Ly=args.Ly,
-        t_end=args.t_end,
-        dt=args.dt,
-        weld=weld,
-        material=mat,
-        output_file=args.output,
-    )
+        config = ThermalSimulationConfig(
+            nx=args.nx,
+            ny=args.ny,
+            Lx=args.Lx,
+            Ly=args.Ly,
+            t_end=args.t_end,
+            dt=args.dt,
+            weld=weld,
+            material=mat,
+            output_file=args.output,
+        )
 
-    print("Running 2D thermal simulation...")
-    result = run_thermal_simulation(config)
+        print("Running 2D thermal simulation...")
+        result = run_thermal_simulation(config)
+    except ValueError as exc:
+        parser.error(str(exc))
+
     print(f"Simulation complete. Output: {args.output}")
     print(f"Temperature range: {result['T'].min():.1f} K – {result['T'].max():.1f} K")
 

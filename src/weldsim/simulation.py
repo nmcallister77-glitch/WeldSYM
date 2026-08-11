@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import math
+import os
 from dataclasses import dataclass, field
-from typing import Dict, Tuple
 
 import numpy as np
 
@@ -24,6 +25,32 @@ class ThermalSimulationConfig:
     weld: WeldParams | None = None
     material: MaterialParams = field(default_factory=MaterialParams)
     output_file: str | None = "results/temperature.csv"
+    max_cells: int = 4_000_000
+    max_steps: int = 1_000_000
+
+    def __post_init__(self) -> None:
+        for name, value in (("nx", self.nx), ("ny", self.ny)):
+            if value < 3:
+                raise ValueError(f"{name} must be at least 3 (got {value!r})")
+        for name, value in (
+            ("Lx", self.Lx),
+            ("Ly", self.Ly),
+            ("t_end", self.t_end),
+            ("dt", self.dt),
+        ):
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} must be a finite, positive value (got {value!r})")
+        if self.dt > self.t_end:
+            raise ValueError(f"dt ({self.dt}) must not exceed t_end ({self.t_end})")
+        if self.nx * self.ny > self.max_cells:
+            raise ValueError(
+                f"grid of {self.nx}x{self.ny} cells exceeds max_cells ({self.max_cells})"
+            )
+        n_steps = math.ceil(self.t_end / self.dt)
+        if n_steps > self.max_steps:
+            raise ValueError(
+                f"{n_steps} time steps exceed max_steps ({self.max_steps}); increase dt"
+            )
 
 
 def run_thermal_simulation(config: ThermalSimulationConfig):
@@ -61,7 +88,6 @@ def run_thermal_simulation(config: ThermalSimulationConfig):
     )
 
     if config.output_file is not None:
-        import os
         os.makedirs(os.path.dirname(config.output_file) or ".", exist_ok=True)
         save_temperature_csv(config.output_file, x, y, T)
 
