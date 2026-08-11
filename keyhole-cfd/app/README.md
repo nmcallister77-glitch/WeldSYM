@@ -6,11 +6,13 @@ A standalone Windows GUI for configuring and running the `laserKeyholeVoF` OpenF
 
 1. Make sure WSL2 is set up with OpenFOAM 2306 and that `laserKeyholeVoF` has been compiled at least once.
 2. Make sure the case mesh and initial fields exist under `/home/<user>/welding-cases/keyhole-cfd` in WSL.
-3. Double-click `RunLaserKeyholeApp.bat` in the repo root, or run:
+3. Double-click `RunLaserKeyholeApp.vbs` in the repo root (silent, no console window), or run:
 
 ```powershell
 pythonw keyhole-cfd\app\laserkeyhole_app.pyw
 ```
+
+If you need to see a console for debugging, use `RunLaserKeyholeApp.bat`.
 
 ## What the app does
 
