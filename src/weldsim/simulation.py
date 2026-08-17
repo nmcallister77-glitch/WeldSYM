@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Any, Dict
 
 import numpy as np
 
 from .errors import ValidationError
 from .materials import Material, list_materials, load_material
-from .thermal.fd_solver import run_2d_fd_thermal
+from .thermal.fd_solver import PhaseModel, ThermalHistory, run_2d_fd_thermal
 from .types import MaterialParams, WeldParams
 from .weld_path import WeldPath, WobbleParams
 
@@ -36,6 +36,18 @@ class ThermalSimulationConfig:
     path: WeldPath | None = None
     wobble: WobbleParams | None = None
     probe: tuple[float, float] | None = None
+    plate_thickness: float | None = None  # m; defaults to T1
+    phase_change: bool = True  # latent heat, evaporation cap and surface losses
+
+    @property
+    def thickness(self) -> float:
+        """Plate thickness used for the mechanical models (m).
+
+        ``T1`` is the depth the surface flux is spread over for the thermal
+        solve, which is not necessarily the plate thickness once the beam only
+        partially penetrates.
+        """
+        return self.T1 if self.plate_thickness is None else self.plate_thickness
 
 
 def _to_material_params(material: MaterialParams | Material) -> MaterialParams:
@@ -47,6 +59,24 @@ def _to_material_params(material: MaterialParams | Material) -> MaterialParams:
             T0=material.T0,
         )
     return material
+
+
+def _phase_model(config: ThermalSimulationConfig) -> PhaseModel | None:
+    """Phase-change physics for the run, when the alloy data is available.
+
+    Only a :class:`~weldsim.materials.Material` carries melting and boiling
+    data; with bare :class:`~weldsim.types.MaterialParams` the solve stays pure
+    conduction, which will overshoot for a concentrated beam.
+    """
+    material = config.material
+    if not config.phase_change or not isinstance(material, Material):
+        return None
+    return PhaseModel(
+        solidus=material.solidus,
+        liquidus=material.liquidus,
+        latent_heat=material.latent_heat_fusion,
+        boiling=material.boiling,
+    )
 
 
 def validate_config(config: ThermalSimulationConfig) -> None:
@@ -114,18 +144,17 @@ def validate_config(config: ThermalSimulationConfig) -> None:
         raise ValidationError(f"Beam sigma must be greater than 0 m, got {weld.sigma}.")
 
 
-def run_thermal_simulation(config: ThermalSimulationConfig) -> Dict[str, np.ndarray]:
+def run_thermal_simulation(config: ThermalSimulationConfig) -> Dict[str, Any]:
     """
     Run a 2D transient thermal simulation with a moving heat source.
 
     Returns
     -------
     result : dict
-        {
-          "x": np.ndarray,
-          "y": np.ndarray,
-          "T": np.ndarray,
-        }
+        ``x``, ``y`` and the final temperature field ``T``, the optional probe
+        history (``t``, ``T_probe``), and ``history`` — the
+        :class:`~weldsim.thermal.fd_solver.ThermalHistory` holding the peak
+        temperature and cooling-rate fields the weld metrics are built from.
     """
     if config.weld is None:
         config.weld = WeldParams(
@@ -140,7 +169,10 @@ def run_thermal_simulation(config: ThermalSimulationConfig) -> Dict[str, np.ndar
 
     mat = _to_material_params(config.material)
 
-    x, y, T, T_probe = run_2d_fd_thermal(
+    solidus = config.material.solidus if isinstance(config.material, Material) else None
+    phase = _phase_model(config)
+
+    x, y, T, T_probe, history = run_2d_fd_thermal(
         nx=config.nx,
         ny=config.ny,
         Lx=config.Lx,
@@ -154,13 +186,15 @@ def run_thermal_simulation(config: ThermalSimulationConfig) -> Dict[str, np.ndar
         path=config.path,
         wobble=config.wobble,
         probe=config.probe,
+        dwell_temp=solidus,
+        phase=phase,
     )
 
     if config.output_file is not None:
         os.makedirs(os.path.dirname(config.output_file) or ".", exist_ok=True)
         save_temperature_csv(config.output_file, x, y, T)
 
-    result = {"x": x, "y": y, "T": T}
+    result: Dict[str, Any] = {"x": x, "y": y, "T": T, "history": history}
     if T_probe is not None:
         result["t"] = np.arange(0, config.t_end, config.dt)
         result["T_probe"] = T_probe
@@ -178,6 +212,7 @@ def save_temperature_csv(path: str, x: np.ndarray, y: np.ndarray, T: np.ndarray)
 
 
 __all__ = [
+    "ThermalHistory",
     "ThermalSimulationConfig",
     "run_thermal_simulation",
     "validate_config",

@@ -63,3 +63,34 @@ recoil_pressure:
   prefactor: 0.54
   atmospheric_pressure: 101325.0       # Pa
   clamp: [0.0, 8.0e6]
+
+# Heat-affected-zone bands and cooling response.
+# Ti-6Al-4V has no diffusional CCT of interest for welding: the martensitic
+# alpha-prime transformation is governed by the cooling rate through the beta
+# transus (~1268 K). Rate limits after Ahmed & Rack (1998).
+haz:
+  grain_coarsening_temperature: 1268.0   # K, beta transus: prior-beta grain growth
+  lower_limit_temperature: 873.0         # K, below this only stress relief
+  base_hardness_hv: 340.0
+  zones:
+    - name: "Beta-transformed HAZ"
+      t_min: 1268.0
+      t_max: 1878.0
+      note: "Fully beta above the transus; coarse prior-beta grains, alpha-prime on cooling."
+    - name: "Alpha + beta HAZ"
+      t_min: 1073.0
+      t_max: 1268.0
+      note: "Partial beta; primary alpha retained, transformed beta between the grains."
+    - name: "Annealed / stress-relieved"
+      t_min: 873.0
+      t_max: 1073.0
+      note: "No phase change; residual stress relief and slight alpha coarsening."
+  cooling_response:
+    kind: "martensitic_rate"
+    rate_full_martensite: 410.0   # K/s, fully martensitic alpha-prime above this
+    rate_no_martensite: 20.0      # K/s, fully diffusional (colony alpha) below this
+    fast_phase: "Martensitic alpha-prime"
+    intermediate_phase: "Alpha-prime + lamellar alpha"
+    slow_phase: "Colony / lamellar alpha + beta"
+    fast_hardness_hv: 420.0
+    slow_hardness_hv: 300.0

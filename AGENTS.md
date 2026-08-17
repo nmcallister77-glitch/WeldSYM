@@ -59,7 +59,9 @@ stderr message with exit code 2; the GUI shows them via `st.error`. Put new inpu
 - `pyproject.toml` — package metadata, dependencies, optional `gui` extras.
 - `run_gui.py` — `streamlit run app/gui.py` wrapper.
 - `app/gui.py` — Streamlit dashboard with 2D thermal + wobble + 3D keyhole CFD tabs.
-- `src/weldsim/cli.py` — command-line 2D thermal entry point.
+- `src/weldsim/cli.py` — command-line 2D thermal entry point (`--report weld.json` writes the assessment).
+- `src/weldsim/report.py` — `build_report()` turns a thermal run into the `WeldReport` the CLI and GUI both display.
+- `src/weldsim/{weld_metrics,keyhole,microstructure,distortion,wobble_analysis}.py` — the engineering post-processing behind that report.
 - `src/weldsim/errors.py` — exception hierarchy shared by the CLI and GUI.
 - `tests/` — `pytest -q` covers input validation, stability guard and CLI exit codes.
 - `keyhole-cfd/config/simulation_master.yaml` — master config for the OpenFOAM case.

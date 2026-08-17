@@ -6,12 +6,69 @@ YAML files and exposes them to the simple 2D thermal solver.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 import yaml
+
+
+@dataclass
+class HazZone:
+    """One metallurgical band of the heat affected zone.
+
+    Bands are defined by the peak temperature the material reached, which is
+    what a peak-temperature field can be sliced on directly.
+    """
+
+    name: str
+    t_min: float  # K
+    t_max: float  # K
+    note: str = ""
+
+
+@dataclass
+class CoolingResponse:
+    """How the alloy's microstructure responds to weld cooling rate.
+
+    ``kind`` selects the model in :mod:`weldsim.microstructure`:
+
+    ``diffusional_t85``
+        Transformation is governed by the 800→500 °C cooling time; martensite
+        forms below ``t85_martensite`` and is absent above ``t85_no_martensite``
+        (steels, read off a CCT diagram).
+    ``martensitic_rate``
+        Transformation is governed by the instantaneous cooling rate; fully
+        martensitic above ``rate_full_martensite`` K/s and fully diffusional
+        below ``rate_no_martensite`` K/s (titanium alloys).
+    """
+
+    kind: str = "diffusional_t85"
+    t85_martensite: float = 3.0  # s
+    t85_no_martensite: float = 25.0  # s
+    rate_full_martensite: float = 410.0  # K/s
+    rate_no_martensite: float = 20.0  # K/s
+    fast_phase: str = "Martensite"
+    slow_phase: str = "Ferrite + pearlite"
+    intermediate_phase: str = "Bainite"
+    fast_hardness_hv: float | None = None
+    slow_hardness_hv: float | None = None
+
+
+@dataclass
+class Mechanical:
+    """Room-temperature mechanical properties used by the distortion model."""
+
+    youngs_modulus: float = 210e9  # Pa
+    yield_stress: float = 355e6  # Pa
+    thermal_expansion: float = 12e-6  # 1/K
+    poisson_ratio: float = 0.3
+
+    @property
+    def yield_strain(self) -> float:
+        """Elastic strain at yield (-)."""
+        return self.yield_stress / self.youngs_modulus
 
 
 @dataclass
@@ -30,6 +87,13 @@ class Material:
     latent_heat_fusion: float = 2.7e5  # J/kg
     latent_heat_vaporization: float = 6.2e6  # J/kg
     T0: float = 293.15  # K
+    composition: dict[str, float] = field(default_factory=dict)  # wt%
+    mechanical: Mechanical = field(default_factory=Mechanical)
+    haz_zones: list[HazZone] = field(default_factory=list)
+    cooling_response: CoolingResponse = field(default_factory=CoolingResponse)
+    base_hardness_hv: float = 170.0
+    grain_coarsening_temperature: float | None = None  # K
+    haz_lower_temperature: float | None = None  # K
 
     @property
     def thermal_diffusivity(self) -> float:
@@ -40,6 +104,18 @@ class Material:
     def room_temp_density(self) -> float:
         """Alias for density (used by solvers)."""
         return self.density
+
+    @property
+    def melting_enthalpy(self) -> float:
+        """Energy needed to take 1 kg from T0 to a fully molten state [J/kg]."""
+        return self.specific_heat * (self.liquidus - self.T0) + self.latent_heat_fusion
+
+    @property
+    def haz_outer_temperature(self) -> float:
+        """Peak temperature below which the alloy is metallurgically unaffected (K)."""
+        if self.haz_lower_temperature is not None:
+            return self.haz_lower_temperature
+        return self.T0 + 0.5 * (self.solidus - self.T0)
 
 
 def _interp1d(x: np.ndarray, y: np.ndarray) -> Callable[[float], float]:
@@ -112,6 +188,7 @@ def load_material(name: str, at_temperature: float = 1200.0) -> Material:
 
         t_ref = at_temperature
 
+    haz = data.get("haz", {})
     return Material(
         name=alloy["name"],
         density=rho(at_temperature),
@@ -125,6 +202,55 @@ def load_material(name: str, at_temperature: float = 1200.0) -> Material:
         latent_heat_fusion=phase["latent_heat_fusion"],
         latent_heat_vaporization=phase["latent_heat_vaporization"],
         T0=phase.get("reference_temperature", 293.15),
+        composition=_numeric_composition(alloy.get("composition", {})),
+        mechanical=_mechanical(data.get("thermomechanical", {})),
+        haz_zones=[
+            HazZone(
+                name=z["name"],
+                t_min=float(z["t_min"]),
+                t_max=float(z["t_max"]),
+                note=z.get("note", ""),
+            )
+            for z in haz.get("zones", [])
+        ],
+        cooling_response=_cooling_response(haz.get("cooling_response", {})),
+        base_hardness_hv=float(haz.get("base_hardness_hv", 170.0)),
+        grain_coarsening_temperature=haz.get("grain_coarsening_temperature"),
+        haz_lower_temperature=haz.get("lower_limit_temperature"),
+    )
+
+
+def _numeric_composition(raw: dict[str, Any]) -> dict[str, float]:
+    """Keep only numeric alloy fractions, dropping entries like ``Fe: balance``."""
+    return {el: float(v) for el, v in raw.items() if isinstance(v, (int, float))}
+
+
+def _mechanical(raw: dict[str, Any]) -> Mechanical:
+    """Room-temperature slice of the thermomechanical property tables."""
+    if not raw:
+        return Mechanical()
+    defaults = Mechanical()
+    return Mechanical(
+        youngs_modulus=float(raw["youngs_modulus"][0]),
+        yield_stress=float(raw["yield_stress"][0]),
+        thermal_expansion=float(raw["thermal_expansion"][0]),
+        poisson_ratio=float(raw.get("poisson_ratio", defaults.poisson_ratio)),
+    )
+
+
+def _cooling_response(raw: dict[str, Any]) -> CoolingResponse:
+    defaults = CoolingResponse()
+    return CoolingResponse(
+        kind=raw.get("kind", defaults.kind),
+        t85_martensite=float(raw.get("t85_martensite", defaults.t85_martensite)),
+        t85_no_martensite=float(raw.get("t85_no_martensite", defaults.t85_no_martensite)),
+        rate_full_martensite=float(raw.get("rate_full_martensite", defaults.rate_full_martensite)),
+        rate_no_martensite=float(raw.get("rate_no_martensite", defaults.rate_no_martensite)),
+        fast_phase=raw.get("fast_phase", defaults.fast_phase),
+        slow_phase=raw.get("slow_phase", defaults.slow_phase),
+        intermediate_phase=raw.get("intermediate_phase", defaults.intermediate_phase),
+        fast_hardness_hv=raw.get("fast_hardness_hv"),
+        slow_hardness_hv=raw.get("slow_hardness_hv"),
     )
 
 

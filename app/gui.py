@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import math
 import subprocess
 import sys
@@ -17,8 +18,10 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  registers the '3d' projec
 
 from weldsim.errors import WeldSimError
 from weldsim.materials import Material, list_materials, load_material
+from weldsim.report import WeldReport, build_report
 from weldsim.simulation import ThermalSimulationConfig, run_thermal_simulation
 from weldsim.types import WeldParams
+from weldsim.wobble_analysis import energy_density_map
 from weldsim.weld_path import (
     WeldPath,
     WobbleParams,
@@ -139,6 +142,103 @@ def _plot_beam_path(
     return fig
 
 
+def _plot_zone_map(
+    x: np.ndarray,
+    y: np.ndarray,
+    T_peak: np.ndarray,
+    material: Material,
+) -> plt.Figure:
+    """Plan view of the weld: fusion zone, HAZ bands and unaffected plate."""
+    X, Y = np.meshgrid(x, y, indexing="ij")
+
+    # Contiguous temperature bands from cold plate up to the fusion zone, so the
+    # colour bar reads as a legend of metallurgical zones rather than kelvin.
+    levels = [float(T_peak.min()), material.haz_outer_temperature]
+    labels = ["Unaffected"]
+    for zone in sorted(material.haz_zones, key=lambda z: z.t_min):
+        upper = min(zone.t_max, material.solidus)
+        if upper > levels[-1]:
+            levels.append(upper)
+            labels.append(zone.name)
+    if material.solidus > levels[-1]:
+        levels.append(material.solidus)
+        labels.append("HAZ" if not material.haz_zones else "Near fusion boundary")
+    levels.append(max(material.liquidus, float(T_peak.max()) + 1.0))
+    labels.append("Fusion zone")
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    filled = ax.contourf(X * 1e3, Y * 1e3, T_peak, levels=levels, cmap="inferno")
+    ax.contour(X * 1e3, Y * 1e3, T_peak, levels=[material.solidus], colors="cyan", linewidths=1.2)
+    cbar = fig.colorbar(filled, ax=ax)
+    cbar.set_ticks([(levels[i] + levels[i + 1]) / 2 for i in range(len(levels) - 1)])
+    cbar.set_ticklabels(labels)
+    ax.set_xlabel("x (mm)")
+    ax.set_ylabel("y (mm)")
+    ax.set_title("Weld zones from peak temperature (cyan = fusion boundary)")
+    return fig
+
+
+def _plot_macro_section(report: WeldReport, material: Material) -> plt.Figure:
+    """Transverse macro-section: peak temperature across the weld with the zones marked."""
+    profile = report.metrics.profile
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(profile.y * 1e3, profile.T_peak, "k-", lw=1.5, label="peak temperature")
+    ax.axhline(material.liquidus, color="red", ls="--", lw=1, label="liquidus")
+    ax.axhline(material.solidus, color="orange", ls="--", lw=1, label="solidus")
+    ax.axhline(material.haz_outer_temperature, color="green", ls="--", lw=1, label="HAZ limit")
+    ax.fill_between(
+        profile.y * 1e3,
+        material.solidus,
+        profile.T_peak,
+        where=profile.T_peak >= material.solidus,
+        color="red",
+        alpha=0.2,
+    )
+    ax.set_xlabel("y across the weld (mm)")
+    ax.set_ylabel("Peak T (K)")
+    ax.set_title(f"Macro-section at x = {profile.x * 1e3:.1f} mm")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    return fig
+
+
+def _plot_phases(phases: dict) -> plt.Figure:
+    fig, ax = plt.subplots(figsize=(6, 2.4))
+    names = list(phases)
+    values = [phases[n] * 100 for n in names]
+    ax.barh(names, values, color="steelblue")
+    ax.set_xlim(0, 100)
+    ax.set_xlabel("Volume fraction (%)")
+    ax.set_title("Predicted HAZ constitution")
+    for i, v in enumerate(values):
+        ax.text(min(v + 1, 92), i, f"{v:.0f}%", va="center", fontsize=8)
+    ax.grid(True, axis="x", alpha=0.3)
+    return fig
+
+
+def _plot_energy_density(x: np.ndarray, y: np.ndarray, E: np.ndarray) -> plt.Figure:
+    X, Y = np.meshgrid(x, y, indexing="ij")
+    fig, ax = plt.subplots(figsize=(7, 4))
+    mesh = ax.pcolormesh(X * 1e3, Y * 1e3, E * 1e-6, shading="auto", cmap="hot")
+    ax.set_xlabel("x (mm)")
+    ax.set_ylabel("y (mm)")
+    ax.set_title("Absorbed energy density (MJ/m²)")
+    fig.colorbar(mesh, ax=ax, label="MJ/m²")
+    return fig
+
+
+def _plot_wobble_concentration(y: np.ndarray, E: np.ndarray) -> plt.Figure:
+    """Energy density across the track, which is what sets penetration uniformity."""
+    station = int(np.argmax(E.max(axis=1)))
+    fig, ax = plt.subplots(figsize=(8, 3.5))
+    ax.plot(y * 1e3, E[station, :] * 1e-6, "r-")
+    ax.set_xlabel("y across the weld (mm)")
+    ax.set_ylabel("Energy density (MJ/m²)")
+    ax.set_title("Heat concentration across the wobble track")
+    ax.grid(True, alpha=0.3)
+    return fig
+
+
 def _process_metrics(
     x: np.ndarray,
     y: np.ndarray,
@@ -200,10 +300,163 @@ def _get_material(mat_name: str, op_temp: float, custom_krc: tuple | None = None
     return load_material(mat_name, op_temp)
 
 
+def _render_weld_report(
+    report: WeldReport,
+    result: dict,
+    config: ThermalSimulationConfig,
+) -> None:
+    """The engineering answer: weld size, penetration, metallurgy and distortion."""
+    material = config.material
+    assert isinstance(material, Material)
+    m, k = report.metrics, report.keyhole
+    weld = config.weld
+    assert weld is not None
+    x, y = result["x"], result["y"]
+
+    for warning in report.warnings:
+        st.warning(warning)
+
+    st.subheader("Weld")
+    cols = st.columns(4)
+    cols[0].metric("Penetration", f"{k.depth_mm:.2f} mm", k.mode + " mode")
+    cols[1].metric("Fusion zone width", f"{m.fusion_width_mm:.2f} mm")
+    cols[2].metric("HAZ width", f"{m.haz_width_mm:.2f} mm", "per side")
+    cols[3].metric("Heat input", f"{report.heat_input:.1f} J/mm", "absorbed")
+    cols = st.columns(4)
+    cols[0].metric("Peak temperature", f"{m.peak_temperature:.0f} K")
+    cols[1].metric("Melt dwell", f"{m.melt_dwell:.2f} s", "above solidus")
+    cols[2].metric("t8/5", f"{m.t_8_5:.2f} s" if m.t_8_5 is not None else "n/a")
+    cols[3].metric(
+        "Cooling rate",
+        f"{m.cooling_rate:.0f} K/s" if m.cooling_rate is not None else "n/a",
+        "at 800 °C",
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.pyplot(_plot_zone_map(x, y, result["history"].T_peak, material))
+    with c2:
+        st.pyplot(_plot_macro_section(report, material))
+
+    st.subheader("Penetration and welding mode")
+    cols = st.columns(3)
+    cols[0].metric("Absorbed intensity", f"{k.intensity_mw_per_cm2:.2f} MW/cm²")
+    cols[1].metric("Depth / width", f"{k.aspect_ratio:.2f}")
+    cols[2].metric("Full penetration", "yes" if k.full_penetration else "no")
+    st.caption(
+        "Mode is set by comparing absorbed intensity with the ~1 MW/cm² keyhole "
+        "threshold; depth comes from an energy balance over the melted channel. "
+        "For a resolved keyhole shape, run the 3D OpenFOAM solver on the "
+        "**3D Keyhole CFD** page."
+    )
+
+    micro = report.microstructure
+    if micro is not None:
+        st.subheader("HAZ microstructure")
+        if micro.phases:
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                st.pyplot(_plot_phases(micro.phases))
+            with c2:
+                if micro.hardness_hv is not None:
+                    st.metric(
+                        "Predicted HAZ hardness",
+                        f"{micro.hardness_hv:.0f} HV",
+                        f"parent {micro.base_hardness_hv:.0f} HV",
+                    )
+                if micro.carbon_equivalent is not None:
+                    st.metric("Carbon equivalent (IIW)", f"{micro.carbon_equivalent:.2f}")
+                st.metric("Coarse-grained band", f"{micro.coarse_grain_width * 1e3:.2f} mm")
+        if micro.bands:
+            st.dataframe(
+                [
+                    {
+                        "Zone": band.name,
+                        "Peak T (K)": f"{band.t_min:.0f} – {band.t_max:.0f}",
+                        "Width per side (mm)": round(band.width_mm, 3),
+                        "Area (mm²)": round(band.area * 1e6, 2),
+                        "Significance": band.note,
+                    }
+                    for band in micro.bands
+                ],
+                width="stretch",
+                hide_index=True,
+            )
+        st.caption(
+            f"Model: {micro.model}. Zone limits and transformation data come from the "
+            "material YAML — replace them with the CCT data for your plate for "
+            "anything beyond parameter screening."
+        )
+
+    dist = report.distortion
+    if dist is not None:
+        st.subheader("Distortion and residual stress")
+        cols = st.columns(4)
+        cols[0].metric("Angular distortion", f"{dist.angular_distortion:.3f} °")
+        cols[1].metric("Transverse shrinkage", f"{dist.transverse_shrinkage_mm:.3f} mm")
+        cols[2].metric("Longitudinal shrinkage", f"{dist.longitudinal_shrinkage_mm:.3f} mm")
+        cols[3].metric("Bowing", f"{dist.bowing_deflection_mm:.3f} mm")
+        cols = st.columns(3)
+        cols[0].metric("Shrinkage force", f"{dist.shrinkage_force / 1e3:.1f} kN")
+        cols[1].metric("Residual tension at weld", f"{dist.peak_tensile_stress / 1e6:.0f} MPa")
+        cols[2].metric(
+            "Balancing compression", f"{dist.balancing_compressive_stress / 1e6:.0f} MPa"
+        )
+        st.caption(
+            "Inherent-strain (shrinkage-force) estimate for a single unrestrained "
+            f"pass on a {config.Lx * 1e3:.0f} × {config.Ly * 1e3:.0f} × "
+            f"{config.thickness * 1e3:.1f} mm plate. Restraint, tacking and multi-pass "
+            "sequencing change these numbers substantially."
+        )
+
+    wob = report.wobble
+    if wob is not None:
+        st.subheader("Wobble heat concentration")
+        cols = st.columns(4)
+        cols[0].metric("Swept width", f"{wob.swept_width_mm:.2f} mm")
+        cols[1].metric(
+            "Advance per loop",
+            f"{wob.pitch_mm:.3f} mm" if math.isfinite(wob.pitch) else "no wobble",
+        )
+        cols[2].metric("Footprint overlap", f"{wob.overlap_ratio * 100:.0f} %")
+        cols[3].metric("Track uniformity", f"{wob.uniformity * 100:.0f} %")
+        cols = st.columns(3)
+        cols[0].metric("Peak energy density", f"{wob.peak_energy_density * 1e-6:.1f} MJ/m²")
+        cols[1].metric("Peak / track mean", f"{wob.concentration_ratio:.2f}×")
+        cols[2].metric("Peak vs straight beam", f"−{wob.peak_reduction * 100:.0f} %")
+        assert config.path is not None
+        energy = energy_density_map(
+            config.path,
+            config.wobble or WobbleParams(amplitude=0.0, frequency=0.0),
+            weld,
+            config.T1,
+            x,
+            y,
+            t_end=min(config.t_end, config.path.duration),
+        )
+        c1, c2 = st.columns(2)
+        with c1:
+            st.pyplot(_plot_energy_density(x, y, energy))
+        with c2:
+            st.pyplot(_plot_wobble_concentration(y, energy))
+        cols = st.columns(2)
+        cols[0].metric("Spot speed (mean)", f"{wob.mean_beam_speed:.2f} m/s")
+        cols[1].metric("Spot speed (peak)", f"{wob.peak_beam_speed:.2f} m/s")
+
+    st.download_button(
+        label="Download weld assessment (JSON)",
+        data=json.dumps(report.as_dict(), indent=2).encode("utf-8"),
+        file_name="weld_report.json",
+        mime="application/json",
+    )
+
+
 def _page_thermal_and_wobble():
     st.header("2D Thermal + Wobble Calculator")
 
-    tab_setup, tab_wobble, tab_thermal = st.tabs(["Setup", "Wobble signature", "Thermal result"])
+    tab_setup, tab_wobble, tab_weld, tab_thermal = st.tabs(
+        ["Setup", "Wobble signature", "Weld result", "Thermal field"]
+    )
 
     with tab_setup:
         c1, c2 = st.columns(2)
@@ -284,11 +537,21 @@ def _page_thermal_and_wobble():
         with c8:
             Lx = st.number_input("Plate length Lx (m)", 0.01, 0.5, 0.08, 0.01)
             Ly = st.number_input("Plate width Ly (m)", 0.01, 0.2, 0.05, 0.001)
-            T1 = st.number_input("Effective thickness h (m)", 0.0005, 0.05, 0.005, 0.0005)
+            plate_thickness = st.number_input(
+                "Plate thickness (mm)", 0.1, 50.0, 3.0, 0.1, key="plate_thickness_mm"
+            )
+            T1 = st.number_input("Heat-spreading depth h (m)", 0.0005, 0.05, 0.003, 0.0005)
+            st.caption(
+                "The thermal model spreads the beam flux over depth h. Set it to the "
+                "expected penetration for a partial-penetration pass, or to the plate "
+                "thickness for a fully penetrating one."
+            )
         with c9:
             nx = st.slider("Grid points X", 21, 201, 81, 2)
             ny = st.slider("Grid points Y", 11, 101, 41, 2)
-            t_end = st.number_input("Simulation time (s)", 0.1, 50.0, length / speed, 0.1)
+            # Twice the travel time by default, so the HAZ has cooled through
+            # 500 C by the end of the run and t8/5 is available.
+            t_end = st.number_input("Simulation time (s)", 0.1, 50.0, 2.0 * length / speed, 0.1)
             dt = st.number_input("Time step (s)", 0.001, 0.5, 0.01, 0.001)
 
         st.subheader("Thermal probe")
@@ -375,18 +638,23 @@ def _page_thermal_and_wobble():
                     material=material,
                     output_file=None,
                     T1=T1,
+                    plate_thickness=plate_thickness / 1e3,
                     path=path,
                     wobble=wobble,
                     probe=(px, py),
                 )
                 try:
                     result = run_thermal_simulation(config)
+                    report = build_report(config, result)
                 except WeldSimError as exc:
                     st.error(str(exc))
                     st.session_state.pop("thermal_result", None)
+                    st.session_state.pop("weld_report", None)
                     result = None
             if result is not None:
                 st.session_state["thermal_result"] = result
+                st.session_state["weld_report"] = report
+                st.session_state["thermal_config"] = config
                 st.session_state["thermal_material"] = material
                 st.session_state["thermal_weld"] = weld
                 st.session_state["thermal_x1"] = x1
@@ -445,6 +713,20 @@ def _page_thermal_and_wobble():
             st.info(
                 "Click **Go (draw heat signature)** on the **Setup** tab to generate "
                 "the wobble preview."
+            )
+
+    # --- Weld result tab: what the parameters actually produce ---
+    with tab_weld:
+        if "weld_report" in st.session_state:
+            _render_weld_report(
+                st.session_state["weld_report"],
+                st.session_state["thermal_result"],
+                st.session_state["thermal_config"],
+            )
+        else:
+            st.info(
+                "Click **Run full 2D thermal simulation** on the **Setup** tab to get "
+                "the weld assessment."
             )
 
     # --- Thermal tab (always rendered, data from session state) ---

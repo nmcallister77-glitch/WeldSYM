@@ -66,3 +66,36 @@ recoil_pressure:
   prefactor: 0.54
   atmospheric_pressure: 101325.0
   clamp: [0.0, 10.0e6]
+
+# Heat-affected-zone bands and cooling response.
+# Zone temperatures are peak-temperature limits; the cooling response is a
+# coarse read-off of a C-Mn steel CCT diagram (CE_IIW ~= 0.44) and should be
+# replaced with the CCT data for the specific plate where that matters.
+haz:
+  grain_coarsening_temperature: 1373.0   # K, ~1100 C: austenite grain coarsening
+  lower_limit_temperature: 873.0         # K, ~600 C: below this, tempering only
+  base_hardness_hv: 170.0
+  zones:
+    - name: "Coarse-grained HAZ"
+      t_min: 1373.0
+      t_max: 1720.0
+      note: "Austenite grain coarsening; lowest toughness, most crack-sensitive band."
+    - name: "Fine-grained HAZ"
+      t_min: 1100.0
+      t_max: 1373.0
+      note: "Fully austenitised and refined; usually the toughest HAZ region."
+    - name: "Intercritical HAZ"
+      t_min: 1000.0
+      t_max: 1100.0
+      note: "Partial austenitisation between Ac1 and Ac3; mixed transformation products."
+    - name: "Subcritical HAZ"
+      t_min: 873.0
+      t_max: 1000.0
+      note: "No austenitisation; tempering and softening of the parent plate."
+  cooling_response:
+    kind: "diffusional_t85"
+    t85_martensite: 3.0        # s, fully martensitic at or below this t8/5
+    t85_no_martensite: 25.0    # s, no martensite at or above this t8/5
+    fast_phase: "Martensite"
+    intermediate_phase: "Bainite"
+    slow_phase: "Ferrite + pearlite"

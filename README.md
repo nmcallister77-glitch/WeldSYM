@@ -37,6 +37,27 @@ Then open http://localhost:8501 in your browser.
 
 Use the **2D Thermal + Wobble** tab for fast laser-welding estimates, and the **3D Keyhole CFD** tab to prepare the OpenFOAM case.
 
+### What the weld assessment gives you
+
+Enter material, power, speed, beam radius, plate thickness and wobble, press **Run full 2D
+thermal simulation**, and the **Weld result** tab answers the questions a welding engineer
+actually asks:
+
+| Output | Basis |
+| --- | --- |
+| Fusion-zone width/length, HAZ width, macro-section | Peak-temperature field vs. solidus and the material's HAZ limit |
+| Penetration and welding mode (conduction / transition / keyhole) | Absorbed peak intensity vs. the ~1 MW/cm² keyhole threshold, plus an energy balance over the melted channel |
+| t8/5, cooling rate, HAZ phase fractions, hardness, carbon equivalent | Thermal cycle of each cell, with the CCT-style limits in the material YAML |
+| Distortion (angular, transverse, longitudinal, bowing) and residual stress | Inherent-strain / shrinkage-force model for a single unrestrained pass |
+| Wobble swept width, overlap, spot speed and heat-concentration map | Accumulated absorbed energy density along the oscillating beam track |
+
+Every number is an engineering estimate from a thin-plate thermal solve, not a validated
+high-fidelity result: the report prints explicit warnings when its assumptions break down
+(boiling reached, fusion zone under-resolved, energy balance inconsistent). Use the 3D
+OpenFOAM solver for resolved keyhole physics and a thermo-mechanical FE run for
+qualification-grade distortion. The same report is available from the CLI with `--report
+weld.json`, and downloadable as JSON from the GUI.
+
 ## 2. 3D keyhole CFD (requires WSL2 + OpenFOAM)
 
 The full 3D solver is a Linux/WSL2 application. `blockMesh`, `laserKeyholeVoF`, and the `python3` commands are **not Windows commands**, so do not run them in PowerShell directly.
