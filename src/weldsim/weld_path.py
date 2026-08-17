@@ -234,7 +234,6 @@ def wobble_animation_gif(
     hot = matplotlib.colormaps["hot"]
 
     # Downsample the simulation grid to a fixed image size
-    nx, ny = len(x), len(y)
     gif_height = int(round(gif_width * (y[-1] - y[0]) / (x[-1] - x[0])))
 
     X, Y = np.meshgrid(x, y, indexing="ij")

@@ -4,7 +4,7 @@ Streamlit dashboard + Python tooling for laser-welding simulation: fast 2D therm
 
 ## Repository layout
 
-Clone or copy this repo somewhere on your machine. The paths below use `C:\Users\nmcal\welding-sim\welding-sim` as an example.
+Clone or copy this repo somewhere on your machine. Below, `<REPO>` stands for the repo root on your machine (e.g. `C:\Dev\WeldSYM` on Windows or `~/repos/WeldSYM` on Linux).
 
 ```text
 app/gui.py              — Streamlit dashboard
@@ -13,12 +13,12 @@ keyhole-cfd/            — OpenFOAM VOF case + custom laserKeyholeVoF solver
 keyhole-cfd/materials/  — YAML material property tables
 ```
 
-## 1. 2D thermal + wobble (runs on Windows)
+## 1. 2D thermal + wobble (any OS)
 
-Open a PowerShell window and change into the repo root:
+The 2D tooling is pure Python and runs on Windows, Linux and macOS. Change into the repo root:
 
 ```powershell
-cd "C:\Users\nmcal\welding-sim\welding-sim"
+cd <REPO>
 ```
 
 Install once:
@@ -83,16 +83,12 @@ The custom `laserKeyholeVoF` solver must be compiled in WSL2 inside `keyhole-cfd
 
 ### 2.4 Run the case
 
-The Windows repo is visible inside WSL at the `/mnt/...` path. For the example location above, the WSL path is:
-
-```text
-/mnt/c/Users/nmcal/welding-sim/welding-sim/keyhole-cfd
-```
+A Windows checkout is visible inside WSL under `/mnt/<drive>/...`; for example `C:\Dev\WeldSYM` becomes `/mnt/c/Dev/WeldSYM`. The **WSL runner** panel in the GUI performs this translation for you and shows the resulting path.
 
 Open a WSL terminal and run:
 
 ```bash
-cd /mnt/c/Users/nmcal/welding-sim/welding-sim/keyhole-cfd
+cd <REPO-IN-WSL>/keyhole-cfd
 source /opt/openfoam11/etc/bashrc
 
 python3 scripts/configure_case.py
@@ -121,8 +117,16 @@ On the **3D Keyhole CFD** tab you can also:
 
 ## CLI
 
-Windows PowerShell:
-
 ```powershell
 python -m weldsim.cli --power 1500 --speed 0.01 --t-end 2 --dt 0.05
+```
+
+Invalid or non-physical inputs (zero/negative power, speed or thickness) and time steps that
+violate the explicit-scheme stability limit are reported as a single-line error and exit with
+status 2 without writing output. The stability message includes the largest usable `--dt`.
+
+## Tests
+
+```bash
+pytest -q
 ```

@@ -6,6 +6,7 @@ from typing import Optional
 
 import numpy as np
 
+from ..errors import StabilityError, ValidationError
 from ..types import WeldParams, MaterialParams
 from ..weld_path import WeldPath, WobbleParams
 
@@ -64,9 +65,10 @@ def run_2d_fd_thermal(
     r_x = alpha * dt / (dx**2)
     r_y = alpha * dt / (dy**2)
     if r_x + r_y > 0.5:
-        raise ValueError(
-            f"Unstable: r_x + r_y = {r_x + r_y:.3f} > 0.5. "
-            "Reduce dt or refine mesh."
+        dt_max = 0.5 / (alpha * (1.0 / dx**2 + 1.0 / dy**2))
+        raise StabilityError(
+            f"Unstable time step: r_x + r_y = {r_x + r_y:.3f} exceeds the explicit "
+            f"limit of 0.5. Use dt <= {dt_max:.4g} s, or coarsen the mesh."
         )
 
     # Time stepping
@@ -106,10 +108,9 @@ def run_2d_fd_thermal(
         Q = (q_eff / q_denom) * np.exp(-r2 / (2.0 * weld.sigma**2)) / h_eff
 
         # Vectorised explicit update (interior points only)
-        lap = (
-            (T[2:, 1:-1] - 2.0 * T[1:-1, 1:-1] + T[:-2, 1:-1]) / (dx**2)
-            + (T[1:-1, 2:] - 2.0 * T[1:-1, 1:-1] + T[1:-1, :-2]) / (dy**2)
-        )
+        lap = (T[2:, 1:-1] - 2.0 * T[1:-1, 1:-1] + T[:-2, 1:-1]) / (dx**2) + (
+            T[1:-1, 2:] - 2.0 * T[1:-1, 1:-1] + T[1:-1, :-2]
+        ) / (dy**2)
         T_new[1:-1, 1:-1] = T[1:-1, 1:-1] + alpha * dt * lap + (dt / (rho * cp)) * Q[1:-1, 1:-1]
 
         # Boundary conditions: T = T0
@@ -135,7 +136,7 @@ def weld_position_at_time(weld: WeldParams, t: float) -> tuple[float, float]:
         x_src = weld.start_pos[0]
         y_src = weld.start_pos[1] + weld.speed * t
     else:
-        raise ValueError("direction must be 'x' or 'y'")
+        raise ValidationError(f"Weld direction must be 'x' or 'y', got {weld.direction!r}.")
     return x_src, y_src
 
 

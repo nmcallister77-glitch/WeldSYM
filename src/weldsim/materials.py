@@ -6,7 +6,7 @@ YAML files and exposes them to the simple 2D thermal solver.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -81,9 +81,7 @@ def load_material(name: str, at_temperature: float = 1200.0) -> Material:
     path = root / f"{name}.yaml"
     if not path.exists():
         available = sorted([p.stem for p in root.glob("*.yaml")])
-        raise FileNotFoundError(
-            f"Material '{name}' not found. Available: {', '.join(available)}"
-        )
+        raise FileNotFoundError(f"Material '{name}' not found. Available: {', '.join(available)}")
 
     with path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
@@ -105,8 +103,13 @@ def load_material(name: str, at_temperature: float = 1200.0) -> Material:
         dsig = _interp1d(Tsurf, np.array(surface["marangoni_coefficient"], dtype=float))
         t_ref = phase["liquidus_temperature"]
     else:
-        sigma = lambda _: 1.0
-        dsig = lambda _: 0.0
+
+        def sigma(_: float) -> float:
+            return 1.0
+
+        def dsig(_: float) -> float:
+            return 0.0
+
         t_ref = at_temperature
 
     return Material(

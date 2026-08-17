@@ -13,11 +13,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
 from matplotlib import cm
-from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  registers the '3d' projection
 
+from weldsim.errors import WeldSimError
 from weldsim.materials import Material, list_materials, load_material
 from weldsim.simulation import ThermalSimulationConfig, run_thermal_simulation
-from weldsim.types import MaterialParams, WeldParams
+from weldsim.types import WeldParams
 from weldsim.weld_path import (
     WeldPath,
     WobbleParams,
@@ -42,9 +43,7 @@ def _plot_temperature_3d(x: np.ndarray, y: np.ndarray, T: np.ndarray) -> plt.Fig
     X, Y = np.meshgrid(x, y, indexing="ij")
     fig = plt.figure(figsize=(10, 7))
     ax = fig.add_subplot(111, projection="3d")
-    surf = ax.plot_surface(
-        X * 1e3, Y * 1e3, T, cmap=cm.inferno, linewidth=0, antialiased=True
-    )
+    surf = ax.plot_surface(X * 1e3, Y * 1e3, T, cmap=cm.inferno, linewidth=0, antialiased=True)
     ax.set_xlabel("x (mm)")
     ax.set_ylabel("y (mm)")
     ax.set_zlabel("T (K)")
@@ -236,8 +235,10 @@ def _page_thermal_and_wobble():
                 )
             else:
                 material = _get_material(mat_name, op_temp)
-            st.write(f"**{material.name}**: k={material.thermal_conductivity:.1f}, "
-                     f"rho={material.density:.0f}, cp={material.specific_heat:.0f}")
+            st.write(
+                f"**{material.name}**: k={material.thermal_conductivity:.1f}, "
+                f"rho={material.density:.0f}, cp={material.specific_heat:.0f}"
+            )
 
         with c2:
             st.subheader("Laser / process")
@@ -313,9 +314,9 @@ def _page_thermal_and_wobble():
         st.divider()
         go, run = st.columns([1, 2])
         with go:
-            preview_pressed = st.button("Go (draw heat signature)", type="primary", width='stretch')
+            preview_pressed = st.button("Go (draw heat signature)", type="primary", width="stretch")
         with run:
-            run_pressed = st.button("Run full 2D thermal simulation", width='stretch')
+            run_pressed = st.button("Run full 2D thermal simulation", width="stretch")
 
         st.session_state["weld"] = weld
         st.session_state["path"] = path
@@ -375,7 +376,14 @@ def _page_thermal_and_wobble():
                     wobble=wobble,
                     probe=(px, py),
                 )
-                st.session_state["thermal_result"] = run_thermal_simulation(config)
+                try:
+                    result = run_thermal_simulation(config)
+                except WeldSimError as exc:
+                    st.error(str(exc))
+                    st.session_state.pop("thermal_result", None)
+                    result = None
+            if result is not None:
+                st.session_state["thermal_result"] = result
                 st.session_state["thermal_material"] = material
                 st.session_state["thermal_weld"] = weld
                 st.session_state["thermal_x1"] = x1
@@ -397,7 +405,7 @@ def _page_thermal_and_wobble():
             with st.expander("Run animation", expanded=True):
                 anim_col, anim_params = st.columns([1, 3])
                 with anim_col:
-                    run_anim = st.button("Run animation", type="secondary", width='stretch')
+                    run_anim = st.button("Run animation", type="secondary", width="stretch")
                 with anim_params:
                     fps = st.slider("FPS", 1, 30, 10, 1)
                     anim_dt = st.slider("Anim time step (s)", 0.02, 0.2, 0.1, 0.01)
@@ -426,9 +434,15 @@ def _page_thermal_and_wobble():
                                 gif_width=400,
                             )
                             st.session_state["wobble_gif"] = gif
-                    st.image(st.session_state["wobble_gif"], caption="Wobbled weld animation — brighter = more dwell time")
+                    st.image(
+                        st.session_state["wobble_gif"],
+                        caption="Wobbled weld animation — brighter = more dwell time",
+                    )
         else:
-            st.info("Click **Go (draw heat signature)** on the **Setup** tab to generate the wobble preview.")
+            st.info(
+                "Click **Go (draw heat signature)** on the **Setup** tab to generate "
+                "the wobble preview."
+            )
 
     # --- Thermal tab (always rendered, data from session state) ---
     with tab_thermal:
@@ -458,11 +472,23 @@ def _page_thermal_and_wobble():
                 with prof1:
                     j_mid = int(round(y1 / (y[1] - y[0])))
                     j_mid = min(max(j_mid, 0), len(y) - 1)
-                    st.pyplot(_plot_temperature_profile(x, T[:, j_mid], "x (mm)", f"T along y = {y[j_mid]*1e3:.1f} mm", material))
+                    st.pyplot(
+                        _plot_temperature_profile(
+                            x, T[:, j_mid], "x (mm)", f"T along y = {y[j_mid]*1e3:.1f} mm", material
+                        )
+                    )
                 with prof2:
                     i_end = int(round(x1 / (x[1] - x[0])))
                     i_end = min(max(i_end, 0), len(x) - 1)
-                    st.pyplot(_plot_temperature_profile(y, T[i_end, :], "y (mm)", f"T across x = {x[i_end]*1e3:.1f} mm", material))
+                    st.pyplot(
+                        _plot_temperature_profile(
+                            y,
+                            T[i_end, :],
+                            "y (mm)",
+                            f"T across x = {x[i_end]*1e3:.1f} mm",
+                            material,
+                        )
+                    )
                 with prof3:
                     if "t" in result and "T_probe" in result:
                         st.pyplot(_plot_probe_history(result["t"], result["T_probe"], material))
@@ -503,11 +529,9 @@ def _page_keyhole_cfd():
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("OpenFOAM case")
-        if st.button("Generate workpiece STL", width='stretch'):
+        if st.button("Generate workpiece STL", width="stretch"):
             with st.spinner("Generating STL..."):
-                rc, out, err = _run_python_script(
-                    "keyhole-cfd/scripts/generate_workpiece_stl.py"
-                )
+                rc, out, err = _run_python_script("keyhole-cfd/scripts/generate_workpiece_stl.py")
             if rc == 0:
                 st.success("STL generated")
                 st.code(out, language="text")
@@ -515,11 +539,9 @@ def _page_keyhole_cfd():
                 st.error(f"Failed:\n{err}")
     with c2:
         st.subheader("Case config")
-        if st.button("Configure OpenFOAM case", width='stretch'):
+        if st.button("Configure OpenFOAM case", width="stretch"):
             with st.spinner("Configuring case..."):
-                rc, out, err = _run_python_script(
-                    "keyhole-cfd/scripts/configure_case.py"
-                )
+                rc, out, err = _run_python_script("keyhole-cfd/scripts/configure_case.py")
             if rc == 0:
                 st.success("Case configured")
                 st.code(out, language="text")
@@ -544,7 +566,7 @@ def _page_keyhole_cfd():
                 plotter.add_mesh(mesh, color=color, show_edges=show_edges)
                 plotter.add_axes()
                 png = plotter.screenshot()
-                st.image(png, width='stretch')
+                st.image(png, width="stretch")
         except Exception as e:
             st.warning(f"Could not render STL: {e}")
     else:
@@ -587,33 +609,55 @@ laserKeyholeVoF
         openfoam_bashrc = st.text_input("OpenFOAM bashrc path in WSL", "/opt/openfoam11/etc/bashrc")
 
         def _wsl_cmd(cmd: str) -> list[str]:
-            return ["wsl", "-e", "bash", "-c", f"source {openfoam_bashrc} 2>/dev/null || true; cd {wsl_path}/openfoam && {cmd}"]
+            return [
+                "wsl",
+                "-e",
+                "bash",
+                "-c",
+                f"source {openfoam_bashrc} 2>/dev/null || true; cd {wsl_path}/openfoam && {cmd}",
+            ]
+
+        def _run_in_wsl(cmd: str, timeout: int) -> None:
+            """Run an OpenFOAM command through WSL, reporting failures in the page."""
+            with st.spinner(f"Running {cmd} in WSL..."):
+                try:
+                    proc = subprocess.run(
+                        _wsl_cmd(cmd), capture_output=True, text=True, timeout=timeout
+                    )
+                except FileNotFoundError:
+                    st.error(
+                        "`wsl` was not found on this machine. The 3D keyhole solver "
+                        "needs Windows with WSL2 (or a native Linux OpenFOAM install); "
+                        "run the commands above manually there."
+                    )
+                    return
+                except subprocess.TimeoutExpired:
+                    st.warning(
+                        f"{cmd} did not finish within {timeout}s and was stopped. "
+                        "Run it directly in WSL for a long solve."
+                    )
+                    return
+                except OSError as exc:
+                    st.error(f"Could not start {cmd} through WSL: {exc}")
+                    return
+            if proc.returncode == 0:
+                st.success(f"{cmd} completed")
+            else:
+                st.error(f"{cmd} failed (exit {proc.returncode}): {proc.stderr}")
+            st.code(proc.stdout or proc.stderr, language="text")
 
         col_a, col_b = st.columns(2)
         with col_a:
-            if st.button("Run blockMesh in WSL", width='stretch'):
-                with st.spinner("Running blockMesh in WSL..."):
-                    proc = subprocess.run(_wsl_cmd("blockMesh"), capture_output=True, text=True, timeout=120)
-                if proc.returncode == 0:
-                    st.success("blockMesh completed")
-                else:
-                    st.error(f"blockMesh failed: {proc.stderr}")
-                st.code(proc.stdout or proc.stderr, language="text")
+            if st.button("Run blockMesh in WSL", width="stretch"):
+                _run_in_wsl("blockMesh", timeout=120)
         with col_b:
-            if st.button("Run laserKeyholeVoF in WSL", width='stretch'):
-                with st.spinner("Starting laserKeyholeVoF in WSL (first 30s)..."):
-                    proc = subprocess.run(_wsl_cmd("laserKeyholeVoF"), capture_output=True, text=True, timeout=30)
-                if proc.returncode == 0:
-                    st.success("laserKeyholeVoF completed or timed out")
-                else:
-                    st.error(f"laserKeyholeVoF error: {proc.stderr}")
-                st.code(proc.stdout or proc.stderr, language="text")
+            if st.button("Run laserKeyholeVoF in WSL", width="stretch"):
+                _run_in_wsl("laserKeyholeVoF", timeout=30)
 
 
 def _page_docs():
     st.header("Documentation")
-    st.markdown(
-        """
+    st.markdown("""
         **2D thermal + wobble (Windows)**
         - Explicit finite-difference conduction with a moving Gaussian surface source
         - Material library (Ti-6Al-4V, S355) with temperature-dependent properties
@@ -623,14 +667,14 @@ def _page_docs():
         - Run `python run_gui.py` from the repo root
 
         **3D keyhole CFD (WSL2 + OpenFOAM)**
-        - OpenFOAM VOF solver (`laserKeyholeVoF`) with enthalpy-porosity, recoil pressure, laser ray tracing
+        - OpenFOAM VOF solver (`laserKeyholeVoF`) with enthalpy-porosity, recoil pressure,
+          laser ray tracing
         - `blockMesh`, `laserKeyholeVoF`, and `python3` are **Linux/WSL commands**
         - Build the custom solver in WSL2 under `keyhole-cfd/solver/laserKeyholeVoF`
         - The Windows repo is mounted in WSL under `/mnt/c/...`
         - Use the **3D Keyhole CFD** tab to configure the case, generate the STL, and preview it
         - Use the **WSL runner** panel to run `blockMesh` / `laserKeyholeVoF` from the GUI
-        """
-    )
+        """)
 
 
 def main():
