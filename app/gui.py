@@ -262,9 +262,11 @@ def _page_thermal_and_wobble():
         st.subheader("Wobble")
         c5, c6, c7 = st.columns(3)
         with c5:
-            wobble_amp = st.slider("Wobble amplitude (µm)", 0.0, 1000.0, 100.0, 25.0)
+            wobble_amp = st.slider("Wobble amplitude (µm)", 0.0, 1000.0, 400.0, 25.0)
         with c6:
-            wobble_freq = st.slider("Wobble frequency (Hz)", 0, 2000, 100, 10)
+            # Low default so individual loops are resolvable in the path preview;
+            # production wobble is typically several hundred Hz.
+            wobble_freq = st.slider("Wobble frequency (Hz)", 0, 2000, 20, 10)
         with c7:
             pattern = st.selectbox(
                 "Pattern",
@@ -290,11 +292,12 @@ def _page_thermal_and_wobble():
             dt = st.number_input("Time step (s)", 0.001, 0.5, 0.01, 0.001)
 
         st.subheader("Thermal probe")
+        st.caption("Defaults to the mid-point of the weld path, where the torch passes over it.")
         c10, c11 = st.columns(2)
         with c10:
-            px = st.number_input("Probe x (m)", 0.0, Lx, (x1 + 0.005), 0.001)
+            px = st.number_input("Probe x (m)", 0.0, Lx, min((x0 + x1) / 2, Lx), 0.001)
         with c11:
-            py = st.number_input("Probe y (m)", 0.0, Ly, y1, 0.001)
+            py = st.number_input("Probe y (m)", 0.0, Ly, min((y0 + y1) / 2, Ly), 0.001)
 
         weld = WeldParams(
             power=power,
