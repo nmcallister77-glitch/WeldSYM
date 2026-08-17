@@ -1,0 +1,77 @@
+** Thermo-mechanical FEA — Keyhole laser weld distortion (CalculiX)
+** Coupled to OpenFOAM via preCICE (Temperature) or one-way mapFields
+**
+*NODE
+1, 0.0, 0.0, 0.0
+2, 0.08, 0.0, 0.0
+3, 0.08, 0.04, 0.0
+4, 0.0, 0.04, 0.0
+5, 0.0, 0.0, 0.006
+6, 0.08, 0.0, 0.006
+7, 0.08, 0.04, 0.006
+8, 0.0, 0.04, 0.006
+**
+*ELEMENT, TYPE=C3D8, ELSET=WORKPIECE
+1, 1, 2, 3, 4, 5, 6, 7, 8
+**
+*MATERIAL, NAME=Ti6Al4V
+*CONDUCTIVITY
+33.0
+*SPECIFIC HEAT
+831.0
+*DENSITY
+4430.0
+*EXPANSION
+8.6E-6
+*ELASTIC
+114000.0, 0.34
+*PLASTIC
+880.0, 0.0
+750.0, 0.02
+600.0, 0.05
+400.0, 0.10
+150.0, 0.20
+**
+*SOLID SECTION, ELSET=WORKPIECE, MATERIAL=Ti6Al4V
+**
+*BOUNDARY
+** Bottom face fixed (fixture)
+5, 1, 3
+6, 1, 3
+7, 1, 3
+8, 1, 3
+** Left/right edges clamped in Y (typical fixture)
+1, 2
+2, 2
+4, 2
+3, 2
+**
+*INITIAL CONDITIONS, TYPE=TEMPERATURE
+WORKPIECE, 293.15
+**
+** preCICE adapter: temperature field from CFD mapped to nodes
+*TEMPERATURE
+** Applied per increment from OpenFOAM/precice
+**
+*STEP, NAME=WELD_THERMAL, NLGEOM, INC=10000
+*COUPLED TEMPERATURE-DISPLACEMENT, STEADY STATE
+0.001, 1.0
+**
+*BOUNDARY
+** Convection + radiation on top/sides (film + Stefan-Boltzmann via *DFLUX or adapter)
+**
+*NODE FILE
+NT, U
+*EL FILE
+S, E, PEEQ
+*END STEP
+**
+*STEP, NAME=COOLDOWN, NLGEOM, INC=5000
+*STATIC
+0.01, 15.0
+**
+*NODE FILE
+NT, U
+*EL FILE
+S, E, PEEQ
+*END STEP

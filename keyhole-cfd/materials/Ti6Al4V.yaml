@@ -1,0 +1,65 @@
+# Ti-6Al-4V — Temperature-Dependent Properties for Keyhole Laser Welding
+# Units: SI unless noted
+# Reference: ASM Handbook, Mills (Recommended Values of Thermophysical Properties)
+
+alloy:
+  name: "Ti-6Al-4V"
+  composition:
+    Ti: 90.0
+    Al: 6.0
+    V: 4.0
+  density_solid_ref: 4430.0           # kg/m³ at 293 K
+
+phase_change:
+  solidus_temperature: 1878.0         # K
+  liquidus_temperature: 1923.0      # K
+  boiling_temperature: 3533.0         # K
+  latent_heat_fusion: 286000.0        # J/kg
+  latent_heat_vaporization: 8800000.0 # J/kg (approximate)
+
+# Temperature [K] -> Property tables (monotonic; interpolate spline)
+thermal:
+  temperature: [293, 500, 800, 1100, 1500, 1878, 1923, 2500, 3000]
+  density: [4430, 4400, 4350, 4300, 4250, 4200, 3920, 3800, 3700]           # kg/m³
+  specific_heat: [546, 600, 670, 720, 830, 900, 831, 850, 870]              # J/kg·K
+  thermal_conductivity: [6.7, 8.5, 11.0, 14.0, 19.0, 22.0, 33.0, 35.0, 38.0] # W/m·K
+
+fluid:
+  temperature: [1923, 2100, 2300, 2500, 2700, 3000]
+  dynamic_viscosity: [0.005, 0.0045, 0.0040, 0.0035, 0.0032, 0.0030]      # Pa·s
+
+surface:
+  temperature: [1923, 2100, 2300, 2500, 2700, 3000]
+  surface_tension: [1.35, 1.30, 1.25, 1.20, 1.15, 1.10]                   # N/m
+  marangoni_coefficient: [-0.00026, -0.00028, -0.00030, -0.00032, -0.00034, -0.00036]  # dσ/dT [N/m·K]
+
+optical:
+  # Complex refractive index n + ik for Fresnel at melt pool interface
+  temperature: [1923, 2500, 3000]
+  n_real: [2.8, 3.2, 3.5]
+  n_imag: [3.5, 4.0, 4.5]
+
+vapor:
+  molar_mass: 0.0479                   # kg/mol (approximate alloy vapor)
+  saturation_pressure_model: "clausius_clapeyron"
+  vaporization_coefficient: 0.82     # accommodation coefficient
+
+thermomechanical:
+  reference_temperature: 293.15
+  temperature: [293, 500, 800, 1100, 1500, 1878]
+  youngs_modulus: [114e9, 100e9, 85e9, 60e9, 30e9, 10e9]                  # Pa
+  yield_stress: [880e6, 750e6, 600e6, 400e6, 150e6, 50e6]                 # Pa
+  thermal_expansion: [8.6e-6, 9.0e-6, 9.5e-6, 10.0e-6, 10.5e-6, 11.0e-6]   # 1/K
+  poisson_ratio: 0.34
+  hardening:
+    type: "isotropic"
+    temperature: [293, 800, 1100, 1500]
+    H: [1200e6, 800e6, 400e6, 100e6]   # Pa (plastic modulus)
+
+solid_state_transformation:
+  enabled: false
+
+recoil_pressure:
+  prefactor: 0.54
+  atmospheric_pressure: 101325.0       # Pa
+  clamp: [0.0, 8.0e6]

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# OpenFOAM generated files / case outputs
+openfoam/[0-9]*
+openfoam/[0-9]*.*
+openfoam/postProcessing/
+openfoam/triSurface/*.stl
+openfoam/constant/polyMesh/
+openfoam/processor*/
+openfoam/VTK/
+
+# preCICE / FEA output
+precice-run/
+*.log
+
+# Build artifacts
+*.o
+*.dep
+lnInclude/
+linux*Gcc*/

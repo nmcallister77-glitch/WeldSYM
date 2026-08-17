@@ -1,0 +1,68 @@
+# Structural Steel S355 — Temperature-Dependent Properties
+# Units: SI unless noted
+
+alloy:
+  name: "S355"
+  composition:
+    Fe: balance
+    C: 0.17
+    Mn: 1.60
+    Si: 0.55
+  density_solid_ref: 7850.0           # kg/m³ at 293 K
+
+phase_change:
+  solidus_temperature: 1720.0         # K
+  liquidus_temperature: 1800.0        # K
+  boiling_temperature: 3134.0         # K
+  latent_heat_fusion: 272000.0        # J/kg
+  latent_heat_vaporization: 6200000.0 # J/kg
+
+thermal:
+  temperature: [293, 500, 800, 1100, 1500, 1720, 1800, 2400, 3000]
+  density: [7850, 7800, 7750, 7700, 7600, 7500, 7100, 6900, 6700]
+  specific_heat: [460, 540, 620, 680, 720, 780, 720, 750, 780]
+  thermal_conductivity: [50, 45, 38, 32, 28, 26, 45, 48, 50]
+
+fluid:
+  temperature: [1800, 2000, 2200, 2400, 2600, 3000]
+  dynamic_viscosity: [0.006, 0.0055, 0.0050, 0.0045, 0.0042, 0.0040]
+
+surface:
+  temperature: [1800, 2000, 2200, 2400, 2600, 3000]
+  surface_tension: [1.80, 1.75, 1.70, 1.65, 1.60, 1.55]
+  marangoni_coefficient: [-0.00035, -0.00038, -0.00040, -0.00042, -0.00044, -0.00046]
+
+optical:
+  temperature: [1800, 2400, 3000]
+  n_real: [3.5, 4.0, 4.3]
+  n_imag: [4.0, 4.8, 5.2]
+
+vapor:
+  molar_mass: 0.0558
+  saturation_pressure_model: "clausius_clapeyron"
+  vaporization_coefficient: 0.85
+
+thermomechanical:
+  reference_temperature: 293.15
+  temperature: [293, 500, 800, 1100, 1500, 1720]
+  youngs_modulus: [210e9, 200e9, 180e9, 140e9, 80e9, 20e9]
+  yield_stress: [355e6, 320e6, 280e6, 180e6, 80e6, 30e6]
+  thermal_expansion: [12.0e-6, 12.5e-6, 13.0e-6, 13.5e-6, 14.0e-6, 14.5e-6]
+  poisson_ratio: 0.30
+  hardening:
+    type: "isotropic"
+    temperature: [293, 800, 1100, 1500]
+    H: [1500e6, 1000e6, 500e6, 150e6]
+
+solid_state_transformation:
+  enabled: true
+  austenite_start: 1000.0             # K (Ac1 approx)
+  austenite_finish: 1100.0             # K (Ac3 approx)
+  martensite_start: 450.0              # K (Ms)
+  martensite_model: "Koistinen-Marburger"
+  max_transformation_strain: 0.004
+
+recoil_pressure:
+  prefactor: 0.54
+  atmospheric_pressure: 101325.0
+  clamp: [0.0, 10.0e6]

@@ -1,0 +1,78 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  blockMeshDict — Background hexa mesh for keyhole laser weld case
+
+  Domain (m):
+    x: 0 .. 0.080   (weld travel)
+    y: -0.020 .. 0.020
+    z: -0.006 .. 0.010  (workpiece + gas plenum)
+
+  Weld focus at (0, 0, 0); refine in snappyHexMesh near origin.
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      blockMeshDict;
+}
+
+scale   1;
+
+vertices
+(
+    (0.0    -0.020  -0.006)  // 0
+    (0.080  -0.020  -0.006)  // 1
+    (0.080   0.020  -0.006)  // 2
+    (0.0     0.020  -0.006)  // 3
+    (0.0    -0.020   0.010)  // 4
+    (0.080  -0.020   0.010)  // 5
+    (0.080   0.020   0.010)  // 6
+    (0.0     0.020   0.010)  // 7
+);
+
+blocks
+(
+    // Single block — snappyHexMesh handles local refinement
+    hex (0 1 2 3 4 5 6 7) (80 40 16) simpleGrading (1 1 1)
+);
+
+edges
+(
+);
+
+boundary
+(
+    bottom
+    {
+        type wall;
+        faces
+        (
+            (0 3 2 1)
+        );
+    }
+    top
+    {
+        type patch;
+        faces
+        (
+            (4 5 6 7)
+        );
+    }
+    sides
+    {
+        type patch;
+        faces
+        (
+            (0 4 7 3)
+            (1 2 6 5)
+            (0 1 5 4)
+            (3 7 6 2)
+        );
+    }
+);
+
+mergePatchPairs
+(
+);
+
+// Refinement anchor: cell size ~1 mm background → AMR + snappy to 15 µm in keyhole

@@ -1,0 +1,67 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  Laser Keyhole VOF — thermophysicalProperties
+  Enthalpy-porosity phase change with vaporization
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      thermophysicalProperties;
+}
+
+thermoType
+{
+    type            heRhoThermo;
+    mixture         pureMixture;
+    transport       const;
+    thermo          hConst;
+    equationOfState rhoConst;
+    specie          specie;
+    energy          sensibleEnthalpy;
+}
+
+mixture
+{
+    specie
+    {
+        molWeight       47.9;           // Ti alloy avg [g/mol] — override via configure
+    }
+    equationOfState
+    {
+        rho             4430;           // baseline; T-dependent via coded tabulated
+    }
+    thermodynamics
+    {
+        Cp              831;            // liquid baseline [J/kg/K]
+        Hf              286000.0;       // latent fusion [J/kg]
+        Hv              8800000.0;      // latent vaporization [J/kg]
+        Ts              1878.0;         // solidus [K]
+        Tl              1923.0;         // liquidus [K]
+        Tb              3533.0;         // boiling [K]
+        Tref            293.15;
+    }
+    transport
+    {
+        mu              0.005;          // dynamic viscosity [Pa.s]
+        kappa           33.0;           // thermal conductivity [W/m/K]
+        sigma           1.35;           // surface tension [N/m]
+        dSigmaDT        -0.00026;       // Marangoni [N/m/K]
+    }
+}
+
+phaseChange
+{
+    model           enthalpyPorosity;
+    beta            1.0e10;             // mushy zone constant [kg/m³/s]
+    epsilon         1.0e-3;             // prevent division by zero
+    vaporization    true;
+    vaporCoeff      0.1;                // superheat-driven vaporization rate [1/s]
+}
+
+radiation
+{
+    enabled         true;
+    emissivity      0.35;
+    sigmaSB         5.670374419e-8;
+}

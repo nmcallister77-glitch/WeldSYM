@@ -1,0 +1,242 @@
+# =============================================================================
+# Master Simulation Configuration — Keyhole Laser Welding + Thermo-Mechanical FEA
+# =============================================================================
+# Usage: python scripts/configure_case.py --config config/simulation_master.yaml
+# =============================================================================
+
+metadata:
+  case_name: "keyhole_laser_weld_3D"
+  version: "1.0.0"
+  description: "Deep-penetration keyhole-mode laser welding with transient distortion"
+  author: "CFD/Multiphysics Engineering"
+  created: "2026-08-01"
+
+# -----------------------------------------------------------------------------
+# Material Selection
+# -----------------------------------------------------------------------------
+material:
+  alloy: "Ti6Al4V"                    # Options: Ti6Al4V | S355
+  properties_file: "materials/Ti6Al4V.yaml"
+  interpolation: "spline"             # linear | spline
+  reference_temperature: 293.15       # K
+
+# -----------------------------------------------------------------------------
+# Laser Process Parameters
+# -----------------------------------------------------------------------------
+laser:
+  power: 3000.0                       # W
+  wavelength: 1.07e-6                 # m (fiber laser)
+  beam_quality_M2: 1.2
+  focus_radius_w0: 150.0e-6           # m (1/e² radius at focus)
+  focus_position: [0.0, 0.0, 0.0]   # m (workpiece top surface origin)
+  incidence_angle: 0.0              # deg from surface normal
+  absorptivity_bulk: 0.35             # baseline η_abs (Fresnel modifies at interface)
+  travel_speed: 0.015                 # m/s (15 mm/s)
+  travel_direction: [1.0, 0.0, 0.0]
+  shield_gas: "Ar"
+  gas_temperature: 293.15             # K
+  pulse:
+    enabled: false
+    frequency: 0.0                    # Hz (CW if 0)
+    duty_cycle: 1.0
+
+# -----------------------------------------------------------------------------
+# Optical Ray Tracing
+# -----------------------------------------------------------------------------
+optics:
+  model: "dual_cylinder_gaussian"     # dual_cylinder_gaussian | pure_gaussian
+  num_rays: 10000
+  max_bounces: 20
+  power_threshold: 1.0e-3           # W — terminate ray below this
+  diffuse_fraction: 0.15              # fraction of reflected power scattered diffusely
+  outer_beam_radius: 200.0e-6         # m — outer cylinder
+  inner_capillary_radius: 80.0e-6     # m — initial capillary estimate (dynamic)
+  fresnel:
+    model: "unpolarized"              # unpolarized | s_pol | p_pol
+    use_temperature_dependent_n: true
+  ray_tracing_subcycles: 3            # per fluid time step
+
+# -----------------------------------------------------------------------------
+# Fluid Physics
+# -----------------------------------------------------------------------------
+physics:
+  solver: "laserKeyholeVoF"           # Custom interFoam derivative
+  phases:
+    - name: "metal"
+      type: "liquid/solid"            # enthalpy-porosity
+    - name: "vapor"
+      type: "compressible_ideal_gas"
+    - name: "shieldGas"
+      type: "incompressible"
+
+  momentum:
+    surface_tension: true
+    marangoni: true
+    buoyancy: true
+    boussinesq: true
+    recoil_pressure: true
+    recoil_formulation: "knudsen_layer"
+    recoil_pressure_clamp: [0.0, 10.0e6]   # Pa
+
+  energy:
+    enthalpy_porosity: true
+    latent_heat_fusion: true
+    vaporization: true
+    vapor_mass_source: true
+    metal_vapor_expansion: true
+    radiation_loss: true
+    convection_loss: true
+
+  interface:
+    method: "VOF"                     # VOF | levelSet | VOF_levelSet_hybrid
+    compression: 1.0
+    mules_limiter_iters: 5
+    artificial_volume_loss_limit: 0.005  # 0.5% per ms
+
+  turbulence:
+    model: "laminar"                  # laminar | kOmegaSST (if high Re gas)
+
+# -----------------------------------------------------------------------------
+# Domain & Mesh
+# -----------------------------------------------------------------------------
+domain:
+  workpiece:
+    length: 0.080                     # m (80 mm along weld)
+    width: 0.040                      # m
+    thickness: 0.006                  # m (6 mm)
+  gas_domain_height: 0.010            # m above surface
+
+mesh:
+  base_resolution:
+    keyhole: 15.0e-6                  # m
+    melt_pool: 75.0e-6
+    far_field: 0.0005
+  amr:
+    enabled: true
+    max_level: 4
+    refine_interval: 1                # every N time steps
+    criteria:
+      grad_alpha_threshold: 1.0e5
+      temperature_liquidus_band: 50.0   # K
+      keyhole_depth_gradient: 1.0e4
+    coarsen_delay_steps: 5
+  quality:
+    max_non_orthogonality: 65
+    max_skewness: 3.0
+
+# -----------------------------------------------------------------------------
+# Boundary Conditions
+# -----------------------------------------------------------------------------
+boundaries:
+  thermal:
+    ambient_temperature: 293.15       # K
+    convection_coefficient: 25.0      # W/m²·K (natural + forced gas)
+    emissivity: 0.35
+    radiation: true
+  mechanical:
+    coupling_mode: "one_way"          # one_way | fully_coupled
+    clamping:
+      type: "fixture_edges"
+      fixed_surfaces: ["bottom", "left_edge", "right_edge"]
+      symmetry_plane: null            # "xz_midplane" if applicable
+    contact:
+      enabled: false
+      backing_plate: false
+
+# -----------------------------------------------------------------------------
+# Thermo-Mechanical FEA
+# -----------------------------------------------------------------------------
+fea:
+  solver: "CalculiX"
+  input_template: "fea/calculix_thermomech.inp"
+  plasticity:
+    model: "J2_vonMises"
+    isotropic_hardening: true
+    temperature_dependent_yield: true
+  phase_transformation:
+    enabled: false                    # true for S355 martensite tracking
+    model: "Leblond"                  # Leblond | Koistinen-Marburger
+  time_sync:
+    thermal_increment: 0.001          # s
+    mechanical_increment: 0.001
+
+# -----------------------------------------------------------------------------
+# Coupling (preCICE)
+# -----------------------------------------------------------------------------
+coupling:
+  enabled: true
+  adapter: "precice"
+  config_file: "scripts/preCICE_config.xml"
+  participants:
+    fluid: "Fluid"
+    solid: "Solid"
+  exchange:
+    fluid_to_solid: ["Temperature"]
+    solid_to_fluid: ["Displacement"]  # only if fully_coupled
+  mapping:
+    method: "nearest-neighbor"        # nearest-neighbor | rbf
+    mesh: "interface_weld_zone"
+
+# -----------------------------------------------------------------------------
+# Time Control
+# -----------------------------------------------------------------------------
+time:
+  start: 0.0
+  weld_duration: 5.333                # s (80mm / 15mm/s)
+  cooldown_duration: 15.0             # s
+  end: 5.0e-4
+  initial_delta_t: 1.0e-7
+  max_delta_t: 5.0e-6
+  max_courant: 0.4
+  max_alpha_courant: 0.4
+  adjust_time_step: true
+  write_interval: 5.0e-5              # s (50 us during weld)
+  write_format: "binary"
+  purge_write: 0
+
+# -----------------------------------------------------------------------------
+# Output & Validation
+# -----------------------------------------------------------------------------
+output:
+  formats:
+    - "vtk"
+    - "xdmf"
+  fields:
+    - "T"
+    - "U"
+    - "p"
+    - "alpha.metal"
+    - "alpha.vapor"
+    - "liquidFraction"
+    - "grad(p)"
+    - "laserHeatFlux"
+    - "recoilPressure"
+  derived_fields:
+    - "magGradP"
+    - "curvature"
+    - "marangoniStress"
+  metrics:
+    realtime: true
+    output_file: "postProcessing/metrics/time_series.json"
+    track:
+      - "keyhole_depth"
+      - "pool_width_top"
+      - "pool_width_root"
+      - "cooling_rate_8_5"
+      - "angular_distortion"
+      - "longitudinal_shrinkage"
+      - "out_of_plane_displacement"
+
+validation:
+  mass_conservation_tolerance: 0.005
+  energy_balance_tolerance: 0.05
+  mesh_independence_refinement_factor: 1.5
+  mesh_independence_tolerance: 0.05
+
+# -----------------------------------------------------------------------------
+# Parallel Execution
+# -----------------------------------------------------------------------------
+parallel:
+  num_processors: 8
+  decomposition_method: "scotch"
+  precice_solid_cores: 8

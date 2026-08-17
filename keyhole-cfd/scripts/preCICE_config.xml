@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<precice-configuration>
+  <log>
+    <sink filter="%Severity% >= info" format="---[precice] %ColorizedSeverity% %Message%" enabled="true"/>
+  </log>
+
+  <data:scalar name="Temperature"/>
+  <data:vector name="Displacement"/>
+
+  <mesh name="Fluid-Mesh" dimensions="3">
+    <use-data name="Temperature"/>
+    <use-data name="Displacement"/>
+  </mesh>
+
+  <mesh name="Solid-Mesh" dimensions="3">
+    <use-data name="Temperature"/>
+    <use-data name="Displacement"/>
+  </mesh>
+
+  <participant name="Fluid">
+    <provide-mesh name="Fluid-Mesh"/>
+    <receive-mesh name="Solid-Mesh" from="Solid"/>
+    <write-data name="Temperature" mesh="Fluid-Mesh"/>
+    <read-data name="Displacement" mesh="Fluid-Mesh"/>
+    <mapping:nearest-neighbor direction="write" from="Fluid-Mesh" to="Solid-Mesh" constraint="consistent"/>
+    <mapping:nearest-neighbor direction="read" from="Solid-Mesh" to="Fluid-Mesh" constraint="consistent"/>
+  </participant>
+
+  <participant name="Solid">
+    <provide-mesh name="Solid-Mesh"/>
+    <receive-mesh name="Fluid-Mesh" from="Fluid"/>
+    <read-data name="Temperature" mesh="Solid-Mesh"/>
+    <write-data name="Displacement" mesh="Solid-Mesh"/>
+  </participant>
+
+  <m2n:sockets acceptor="Solid" connector="Fluid" exchange-directory="/tmp/precice-laser-weld"/>
+
+  <coupling-scheme:serial-implicit>
+    <time-window-size value="1e-4"/>
+    <max-time value="20.333"/>
+    <participants first="Fluid" second="Solid"/>
+    <exchange data="Temperature" mesh="Solid-Mesh" from="Fluid" to="Solid"/>
+    <exchange data="Displacement" mesh="Fluid-Mesh" from="Solid" to="Fluid"/>
+    <max-iterations value="30"/>
+    <relative-convergence-measure limit="1e-4" data="Temperature" mesh="Solid-Mesh"/>
+    <relative-convergence-measure limit="1e-5" data="Displacement" mesh="Fluid-Mesh"/>
+    <acceleration:IQN-ILS>
+      <data name="Temperature" mesh="Solid-Mesh"/>
+      <data name="Displacement" mesh="Fluid-Mesh"/>
+      <preconditioner type="residual-sum"/>
+      <filter type="QR2" limit="1e-3"/>
+      <initial-relaxation value="0.3"/>
+      <max-used-iterations value="50"/>
+      <time-windows-reused value="10"/>
+    </acceleration:IQN-ILS>
+  </coupling-scheme:serial-implicit>
+</precice-configuration>

@@ -30,14 +30,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cad = [
-    "pythonocc-core>=7.7",
-]
-fea = [
-    "fenics-dolfinx",
-]
+cad = ["pythonocc-core>=7.7"]
+gui = ["streamlit>=1.30", "matplotlib>=3.8"]
 dev = [
     "pytest>=7.4",
+    "pytest-cov>=4.1",
     "pre-commit>=3.6",
     "mkdocs>=1.5",
     "black>=23.12",
@@ -55,6 +52,9 @@ where = ["src"]
 [tool.black]
 line-length = 100
 target-version = ["py310", "py311", "py312"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.mypy]
 ignore_missing_imports = true

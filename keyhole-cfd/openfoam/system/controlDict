@@ -1,0 +1,69 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  controlDict
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+
+application     laserKeyholeVoF;
+
+startFrom       startTime;
+startTime       0;
+stopAt          endTime;
+endTime         5e-4;
+
+deltaT          1e-07;
+adjustTimeStep  yes;
+maxCo           0.4;
+maxAlphaCo      0.4;
+maxDeltaT       5e-6;
+
+writeControl    adjustableRunTime;
+writeInterval   5e-5;
+purgeWrite      0;
+writeFormat     ascii;
+writePrecision  8;
+writeCompression off;
+
+timeFormat      general;
+timePrecision   8;
+
+runTimeModifiable true;
+
+functions
+{
+    fieldMinMax
+    {
+        type            fieldMinMax;
+        libs            (fieldFunctionObjects);
+        fields          (T alpha.metal liquidFraction recoilPressure alpha.vapor);
+        writeControl    timeStep;
+        writeInterval   10;
+    }
+
+    keyholeDepthProbe
+    {
+        type            sets;
+        libs            (sampling);
+        writeControl    timeStep;
+        writeInterval   5;
+        setFormat       raw;
+        interpolationScheme cellPoint;
+        fields          (T);
+        sets
+        (
+            beamAxis
+            {
+                type    uniform;
+                axis    distance;
+                start   (0.04 0 0);
+                end     (0.04 0 -0.008);
+                nPoints 200;
+            }
+        );
+    }
+}

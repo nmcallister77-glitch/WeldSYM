@@ -1,0 +1,34 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  transportProperties — multi-phase VOF
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      transportProperties;
+}
+
+phases (metal vapor);
+
+metal
+{
+    transportModel  Newtonian;
+    nu              1.13e-6;          // ν = μ/ρ [m²/s] at melt
+    rho             3920;
+}
+
+vapor
+{
+    transportModel  Newtonian;
+    nu              1.5e-5;           // Argon shield gas for now
+    rho             1.65;             // kg/m³
+}
+
+sigma
+{
+    type            constant;
+    sigma           1.35;
+}
+
+// Surface tension force via CSF; Marangoni via dSigmaDT in thermo
