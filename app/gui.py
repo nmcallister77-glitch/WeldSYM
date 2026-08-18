@@ -36,6 +36,12 @@ from weldsim.weld_path import (
 )
 
 
+def _show(fig: plt.Figure) -> None:
+    """Draw a figure and drop it: pyplot keeps every figure alive otherwise."""
+    st.pyplot(fig)
+    plt.close(fig)
+
+
 def _plot_temperature_2d(x: np.ndarray, y: np.ndarray, T: np.ndarray) -> plt.Figure:
     X, Y = np.meshgrid(x, y, indexing="ij")
     fig, ax = plt.subplots(figsize=(6, 4))
@@ -401,9 +407,9 @@ def _render_weld_report(
 
     c1, c2 = st.columns(2)
     with c1:
-        st.pyplot(_plot_zone_map(x, y, result["history"].T_peak, material))
+        _show(_plot_zone_map(x, y, result["history"].T_peak, material))
     with c2:
-        st.pyplot(_plot_macro_section(report, material))
+        _show(_plot_macro_section(report, material))
 
     solution = result.get("solution3d")
     section = report.section
@@ -424,9 +430,9 @@ def _render_weld_report(
         cols[3].metric("Keyhole power share", f"{solution.keyhole_fraction * 100:.0f} %")
         c1, c2 = st.columns(2)
         with c1:
-            st.pyplot(_plot_cross_section(solution))
+            _show(_plot_cross_section(solution))
         with c2:
-            st.pyplot(_plot_longitudinal_section(solution))
+            _show(_plot_longitudinal_section(solution))
         st.caption(
             f"Penetration is measured on the fusion boundary of the {solution.T.shape[0]}×"
             f"{solution.T.shape[1]}×{solution.T.shape[2]} 3D solve "
@@ -449,7 +455,7 @@ def _render_weld_report(
         if micro.phases:
             c1, c2 = st.columns([2, 1])
             with c1:
-                st.pyplot(_plot_phases(micro.phases))
+                _show(_plot_phases(micro.phases))
             with c2:
                 if micro.hardness_hv is not None:
                     st.metric(
@@ -529,9 +535,9 @@ def _render_weld_report(
         )
         c1, c2 = st.columns(2)
         with c1:
-            st.pyplot(_plot_energy_density(x, y, energy))
+            _show(_plot_energy_density(x, y, energy))
         with c2:
-            st.pyplot(_plot_wobble_concentration(y, energy))
+            _show(_plot_wobble_concentration(y, energy))
         cols = st.columns(2)
         cols[0].metric("Spot speed (mean)", f"{wob.mean_beam_speed:.2f} m/s")
         cols[1].metric("Spot speed (peak)", f"{wob.peak_beam_speed:.2f} m/s")
@@ -608,6 +614,9 @@ def _page_thermal_and_wobble():
             x1 = st.number_input("End x (m)", 0.0, 0.5, 0.07, 0.001)
             y1 = st.number_input("End y (m)", 0.0, 0.2, 0.025, 0.001)
         length = math.hypot(x1 - x0, y1 - y0)
+        if length <= 0.0:
+            st.error("The weld path has zero length. Move the end point away from the start.")
+            return
         st.write(f"Path length: **{length*1e3:.2f} mm**, travel time: **{length/speed:.3f} s**")
 
         st.subheader("Wobble")
@@ -669,7 +678,7 @@ def _page_thermal_and_wobble():
                 "Simulation time (s)",
                 0.1,
                 50.0,
-                tail * length / speed,
+                float(min(max(tail * length / speed, 0.1), 50.0)),
                 0.1,
                 key=f"t_end_{solver}",
             )
@@ -812,8 +821,8 @@ def _page_thermal_and_wobble():
             y = st.session_state["y"]
             Lx = st.session_state["Lx"]
             Ly = st.session_state["Ly"]
-            st.pyplot(_plot_beam_path(x_traj, y_traj, Lx, Ly))
-            st.pyplot(_plot_heat_signature(x, y, Q, x_traj, y_traj))
+            _show(_plot_beam_path(x_traj, y_traj, Lx, Ly))
+            _show(_plot_heat_signature(x, y, Q, x_traj, y_traj))
 
             with st.expander("Run animation", expanded=True):
                 anim_col, anim_params = st.columns([1, 3])
@@ -887,16 +896,16 @@ def _page_thermal_and_wobble():
 
             c1, c2 = st.columns(2)
             with c1:
-                st.pyplot(_plot_temperature_2d(x, y, T))
+                _show(_plot_temperature_2d(x, y, T))
             with c2:
-                st.pyplot(_plot_temperature_3d(x, y, T))
+                _show(_plot_temperature_3d(x, y, T))
 
             with st.expander("Temperature profiles", expanded=True):
                 prof1, prof2, prof3 = st.tabs(["Longitudinal", "Transverse", "Probe history"])
                 with prof1:
                     j_mid = int(round(y1 / (y[1] - y[0])))
                     j_mid = min(max(j_mid, 0), len(y) - 1)
-                    st.pyplot(
+                    _show(
                         _plot_temperature_profile(
                             x, T[:, j_mid], "x (mm)", f"T along y = {y[j_mid]*1e3:.1f} mm", material
                         )
@@ -904,7 +913,7 @@ def _page_thermal_and_wobble():
                 with prof2:
                     i_end = int(round(x1 / (x[1] - x[0])))
                     i_end = min(max(i_end, 0), len(x) - 1)
-                    st.pyplot(
+                    _show(
                         _plot_temperature_profile(
                             y,
                             T[i_end, :],
@@ -915,7 +924,7 @@ def _page_thermal_and_wobble():
                     )
                 with prof3:
                     if "t" in result and "T_probe" in result:
-                        st.pyplot(_plot_probe_history(result["t"], result["T_probe"], material))
+                        _show(_plot_probe_history(result["t"], result["T_probe"], material))
                     else:
                         st.info("Probe history not available.")
 

@@ -70,7 +70,7 @@ def patch_control_dict(cfg: dict, case_dir: Path) -> None:
     text = re.sub(r"(writeInterval\s+)[\d.e+-]+", rf"\g<1>{time_cfg['write_interval']}", text, count=1)
     text = re.sub(r"(maxCo\s+)[\d.]+", rf"\g<1>{time_cfg['max_courant']}", text, count=1)
     text = re.sub(r"(maxAlphaCo\s+)[\d.]+", rf"\g<1>{time_cfg.get('max_alpha_courant', time_cfg['max_courant'])}", text, count=1)
-    text = re.sub(r"(writeFormat\s+)\w+", rf"\g<1>{cfg.get('output', {}).get('write_format', 'ascii')}", text, count=1)
+    text = re.sub(r"(writeFormat\s+)\w+", rf"\g<1>{time_cfg.get('write_format', 'ascii')}", text, count=1)
     text = re.sub(r"(writePrecision\s+)\d+", rf"\g<1>6", text, count=1)
     ctrl.write_text(text, encoding="utf-8")
 
