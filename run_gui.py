@@ -1,13 +1,12 @@
-"""Convenience script to launch the Streamlit GUI."""
+"""Convenience script to launch the Streamlit GUI.
+
+Server options and the telemetry opt-out live in ``.streamlit/config.toml`` so the
+app behaves the same whether it is started from here or with ``streamlit run``.
+"""
 
 import os
+import subprocess
 import sys
 
-# Allow running from repo root
-os.chdir(os.path.dirname(__file__))
-
-sys.exit(
-    os.system(
-        "streamlit run app/gui.py --server.headless true --server.address localhost --server.port 8501"
-    )
-)
+root = os.path.dirname(os.path.abspath(__file__))
+sys.exit(subprocess.call([sys.executable, "-m", "streamlit", "run", "app/gui.py"], cwd=root))

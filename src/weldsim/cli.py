@@ -22,9 +22,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="weldsim",
         description=(
-            "Run a 2D welding thermal simulation and report the weld it would "
+            "Run a welding thermal simulation and report the weld it would "
             "produce: fusion zone and HAZ size, penetration, HAZ microstructure "
-            "and hardness, distortion and residual stress."
+            "and hardness, distortion and residual stress. Add --solver 3d to "
+            "resolve the thickness and measure penetration on the cross-section."
         ),
     )
     parser.add_argument("--power", type=float, default=3000.0, help="Power (W)")
@@ -76,6 +77,28 @@ def build_parser() -> argparse.ArgumentParser:
         default="circle",
         choices=["circle", "line", "figure8", "infinity"],
         help="Beam wobble pattern",
+    )
+    parser.add_argument(
+        "--solver",
+        type=str,
+        default="2d",
+        choices=["2d", "3d"],
+        help=(
+            "2d: fast thin-plate solve. 3d: resolves the thickness, so penetration "
+            "and the transverse cross-section are measured rather than estimated"
+        ),
+    )
+    parser.add_argument(
+        "--nz",
+        type=int,
+        default=17,
+        help="Grid points through the thickness (--solver 3d only)",
+    )
+    parser.add_argument(
+        "--dt-3d",
+        type=float,
+        default=None,
+        help="Time step for the 3D solve (s); omit to let it pick a stable one",
     )
     parser.add_argument(
         "--report",
@@ -134,9 +157,15 @@ def main() -> int:
         plate_thickness=thickness,
         path=path,
         wobble=wobble,
+        solver=args.solver,
+        nz=args.nz,
+        dt_3d=args.dt_3d,
     )
 
-    print("Running 2D thermal simulation...")
+    if args.solver == "3d":
+        print(f"Running 3D thermal simulation ({args.nx}x{args.ny}x{args.nz})...")
+    else:
+        print("Running 2D thermal simulation...")
     try:
         result = run_thermal_simulation(config)
         report = build_report(config, result)

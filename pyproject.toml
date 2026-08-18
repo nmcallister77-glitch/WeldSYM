@@ -21,17 +21,18 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
+# The solvers and the weld report need nothing but NumPy and a YAML reader, so a
+# plain install runs the whole assessment offline. Everything heavier belongs to
+# the optional OpenFOAM/CAD routes.
 dependencies = [
     "numpy>=1.24",
-    "scipy>=1.11",
-    "pyvista>=0.42",
-    "gmsh>=4.13",
     "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
 cad = ["pythonocc-core>=7.7"]
 gui = ["streamlit>=1.30", "matplotlib>=3.8"]
+cfd = ["pyvista>=0.42", "gmsh>=4.13"]
 dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",

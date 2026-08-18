@@ -13,6 +13,8 @@ from typing import Any, Callable
 import numpy as np
 import yaml
 
+from .types import MaterialParams
+
 
 @dataclass
 class HazZone:
@@ -116,6 +118,21 @@ class Material:
         if self.haz_lower_temperature is not None:
             return self.haz_lower_temperature
         return self.T0 + 0.5 * (self.solidus - self.T0)
+
+
+def material_from_params(params: MaterialParams) -> Material:
+    """Wrap bare thermal properties as a Material so the metallurgy models run.
+
+    Alloy data is unknown in this case, so the :class:`Material` defaults apply
+    and any metallurgical output is generic rather than alloy-specific.
+    """
+    return Material(
+        name="Custom (thermal properties only)",
+        density=params.rho,
+        thermal_conductivity=params.k,
+        specific_heat=params.cp,
+        T0=params.T0,
+    )
 
 
 def _interp1d(x: np.ndarray, y: np.ndarray) -> Callable[[float], float]:

@@ -1,4 +1,4 @@
-"""Streamlit GUI for Weld Sim — 2D thermal + wobble + 3D keyhole CFD."""
+"""Streamlit GUI for Weld Sim — weld assessment, wobble, and OpenFOAM export."""
 
 from __future__ import annotations
 
@@ -19,7 +19,12 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  registers the '3d' projec
 from weldsim.errors import WeldSimError
 from weldsim.materials import Material, list_materials, load_material
 from weldsim.report import WeldReport, build_report
-from weldsim.simulation import ThermalSimulationConfig, run_thermal_simulation
+from weldsim.simulation import (
+    Solution3D,
+    ThermalSimulationConfig,
+    run_thermal_simulation,
+)
+from weldsim.thermal.solver3d import DT_SAFETY, stable_dt
 from weldsim.types import WeldParams
 from weldsim.wobble_analysis import energy_density_map
 from weldsim.weld_path import (
@@ -178,6 +183,68 @@ def _plot_zone_map(
     return fig
 
 
+#: Cell updates per second the 3D solver sustains on a typical laptop core,
+#: measured on the default grid. Only used to warn about long runs.
+CELL_UPDATE_RATE = 3.0e7
+
+
+def _estimate_3d_runtime(
+    nx: int,
+    ny: int,
+    nz: int,
+    Lx: float,
+    Ly: float,
+    thickness: float,
+    t_end: float,
+    material: Material,
+) -> float:
+    """Rough wall-clock estimate (s) for a 3D solve, from its stable time step."""
+    dx, dy = Lx / max(nx - 1, 1), Ly / max(ny - 1, 1)
+    dz = thickness / max(nz - 1, 1)
+    alpha = material.thermal_conductivity / (material.density * material.specific_heat)
+    dt = DT_SAFETY * stable_dt(alpha, dx, dy, dz)
+    return nx * ny * nz * math.ceil(t_end / dt) / CELL_UPDATE_RATE
+
+
+def _plot_cross_section(solution: Solution3D) -> plt.Figure:
+    """Transverse macro-section from the 3D solve: the weld as it would be cut."""
+    index = solution.section_index()
+    T_peak = solution.section(index)
+    Y, Z = np.meshgrid(solution.y * 1e3, solution.z * 1e3, indexing="ij")
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    filled = ax.contourf(Y, Z, T_peak, levels=24, cmap="inferno")
+    ax.contour(Y, Z, T_peak, levels=[solution.solidus], colors="cyan", linewidths=1.4)
+    ax.contour(Y, Z, T_peak, levels=[solution.haz_limit], colors="lime", linewidths=1.0)
+    fig.colorbar(filled, ax=ax, label="Peak T (K)")
+    ax.invert_yaxis()
+    ax.set_xlabel("y across the weld (mm)")
+    ax.set_ylabel("depth below the surface (mm)")
+    ax.set_title(
+        f"Cross-section at x = {solution.x[index] * 1e3:.1f} mm "
+        "(cyan = fusion boundary, green = HAZ limit)"
+    )
+    ax.set_aspect("equal")
+    return fig
+
+
+def _plot_longitudinal_section(solution: Solution3D) -> plt.Figure:
+    """Depth profile along the weld centreline, so the run-in and crater show up."""
+    centre = int(np.argmax(solution.T_peak.max(axis=(0, 2))))
+    T_peak = solution.T_peak[:, centre, :]
+    X, Z = np.meshgrid(solution.x * 1e3, solution.z * 1e3, indexing="ij")
+
+    fig, ax = plt.subplots(figsize=(7, 3))
+    filled = ax.contourf(X, Z, T_peak, levels=24, cmap="inferno")
+    ax.contour(X, Z, T_peak, levels=[solution.solidus], colors="cyan", linewidths=1.4)
+    fig.colorbar(filled, ax=ax, label="Peak T (K)")
+    ax.invert_yaxis()
+    ax.set_xlabel("x along the weld (mm)")
+    ax.set_ylabel("depth (mm)")
+    ax.set_title(f"Longitudinal section at y = {solution.y[centre] * 1e3:.1f} mm")
+    return fig
+
+
 def _plot_macro_section(report: WeldReport, material: Material) -> plt.Figure:
     """Transverse macro-section: peak temperature across the weld with the zones marked."""
     profile = report.metrics.profile
@@ -318,7 +385,7 @@ def _render_weld_report(
 
     st.subheader("Weld")
     cols = st.columns(4)
-    cols[0].metric("Penetration", f"{k.depth_mm:.2f} mm", k.mode + " mode")
+    cols[0].metric("Penetration", f"{report.penetration * 1e3:.2f} mm", k.mode + " mode")
     cols[1].metric("Fusion zone width", f"{m.fusion_width_mm:.2f} mm")
     cols[2].metric("HAZ width", f"{m.haz_width_mm:.2f} mm", "per side")
     cols[3].metric("Heat input", f"{report.heat_input:.1f} J/mm", "absorbed")
@@ -338,17 +405,43 @@ def _render_weld_report(
     with c2:
         st.pyplot(_plot_macro_section(report, material))
 
+    solution = result.get("solution3d")
+    section = report.section
     st.subheader("Penetration and welding mode")
     cols = st.columns(3)
     cols[0].metric("Absorbed intensity", f"{k.intensity_mw_per_cm2:.2f} MW/cm²")
-    cols[1].metric("Depth / width", f"{k.aspect_ratio:.2f}")
-    cols[2].metric("Full penetration", "yes" if k.full_penetration else "no")
-    st.caption(
-        "Mode is set by comparing absorbed intensity with the ~1 MW/cm² keyhole "
-        "threshold; depth comes from an energy balance over the melted channel. "
-        "For a resolved keyhole shape, run the 3D OpenFOAM solver on the "
-        "**3D Keyhole CFD** page."
+    cols[1].metric(
+        "Depth / width",
+        f"{section.aspect_ratio:.2f}" if section is not None else f"{k.aspect_ratio:.2f}",
     )
+    cols[2].metric("Full penetration", "yes" if report.full_penetration else "no")
+
+    if solution is not None and section is not None:
+        cols = st.columns(4)
+        cols[0].metric("Fusion area", f"{section.fusion_area * 1e6:.2f} mm²", "cross-section")
+        cols[1].metric("Root width", f"{section.root_width * 1e3:.2f} mm")
+        cols[2].metric("HAZ depth", f"{section.haz_depth * 1e3:.2f} mm")
+        cols[3].metric("Keyhole power share", f"{solution.keyhole_fraction * 100:.0f} %")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.pyplot(_plot_cross_section(solution))
+        with c2:
+            st.pyplot(_plot_longitudinal_section(solution))
+        st.caption(
+            f"Penetration is measured on the fusion boundary of the {solution.T.shape[0]}×"
+            f"{solution.T.shape[1]}×{solution.T.shape[2]} 3D solve "
+            f"({solution.steps} steps of {solution.dt * 1e3:.2f} ms). Mode is set by "
+            "comparing absorbed intensity with the ~1 MW/cm² keyhole threshold, and the "
+            "capillary is an assumed tapered channel: melt flow, recoil pressure and the "
+            "free surface are not resolved, which is what the optional OpenFOAM export is for."
+        )
+    else:
+        st.caption(
+            "Mode is set by comparing absorbed intensity with the ~1 MW/cm² keyhole "
+            "threshold; depth comes from an energy balance over the melted channel. "
+            "Switch the solver to **3D through-thickness** on the **Setup** tab to "
+            "measure penetration and see the weld cross-section."
+        )
 
     micro = report.microstructure
     if micro is not None:
@@ -452,7 +545,12 @@ def _render_weld_report(
 
 
 def _page_thermal_and_wobble():
-    st.header("2D Thermal + Wobble Calculator")
+    st.header("Weld simulation")
+    st.caption(
+        "Enter the process, material and wobble parameters; the app solves the weld "
+        "locally and reports fusion zone, penetration, HAZ metallurgy, distortion and "
+        "heat concentration. No internet or external solver needed."
+    )
 
     tab_setup, tab_wobble, tab_weld, tab_thermal = st.tabs(
         ["Setup", "Wobble signature", "Weld result", "Thermal field"]
@@ -547,12 +645,44 @@ def _page_thermal_and_wobble():
                 "thickness for a fully penetrating one."
             )
         with c9:
+            solver = st.radio(
+                "Solver",
+                ["3d", "2d"],
+                format_func=lambda s: {
+                    "3d": "3D through-thickness (measures penetration)",
+                    "2d": "2D thin plate (fast screening)",
+                }[s],
+                help=(
+                    "The 3D solve resolves the depth, so penetration and the weld "
+                    "cross-section are measured rather than estimated. It runs "
+                    "inside the app; no external solver is needed."
+                ),
+            )
             nx = st.slider("Grid points X", 21, 201, 81, 2)
             ny = st.slider("Grid points Y", 11, 101, 41, 2)
-            # Twice the travel time by default, so the HAZ has cooled through
-            # 500 C by the end of the run and t8/5 is available.
-            t_end = st.number_input("Simulation time (s)", 0.1, 50.0, 2.0 * length / speed, 0.1)
-            dt = st.number_input("Time step (s)", 0.001, 0.5, 0.01, 0.001)
+            nz = st.slider("Grid points through thickness", 5, 61, 13, 2, disabled=solver == "2d")
+            # Long enough for the measured section to cool through 500 C, so t8/5
+            # is available. The 3D solve pays for every extra second of simulated
+            # time, so it gets the shorter tail.
+            tail = 1.3 if solver == "3d" else 2.0
+            t_end = st.number_input(
+                "Simulation time (s)",
+                0.1,
+                50.0,
+                tail * length / speed,
+                0.1,
+                key=f"t_end_{solver}",
+            )
+            dt = st.number_input("Time step (s)", 0.001, 0.5, 0.01, 0.001, disabled=solver == "3d")
+            if solver == "3d":
+                seconds = _estimate_3d_runtime(
+                    nx, ny, nz, Lx, Ly, plate_thickness / 1e3, t_end, material
+                )
+                st.caption(
+                    "The 3D solve picks its own stable time step. Estimated run time "
+                    f"**{seconds:.0f} s** — shorten the weld, the simulated time or the "
+                    "mesh if that is too slow."
+                )
 
         st.subheader("Thermal probe")
         st.caption("Defaults to the mid-point of the weld path, where the torch passes over it.")
@@ -582,7 +712,8 @@ def _page_thermal_and_wobble():
         with go:
             preview_pressed = st.button("Go (draw heat signature)", type="primary", width="stretch")
         with run:
-            run_pressed = st.button("Run full 2D thermal simulation", width="stretch")
+            run_label = "Run 3D weld simulation" if solver == "3d" else "Run 2D weld simulation"
+            run_pressed = st.button(run_label, width="stretch")
 
         st.session_state["weld"] = weld
         st.session_state["path"] = path
@@ -626,31 +757,42 @@ def _page_thermal_and_wobble():
             st.session_state["y"] = y
 
         if run_pressed:
-            with st.spinner("Running thermal simulation..."):
-                config = ThermalSimulationConfig(
-                    nx=nx,
-                    ny=ny,
-                    Lx=Lx,
-                    Ly=Ly,
-                    t_end=t_end,
-                    dt=dt,
-                    weld=weld,
-                    material=material,
-                    output_file=None,
-                    T1=T1,
-                    plate_thickness=plate_thickness / 1e3,
-                    path=path,
-                    wobble=wobble,
-                    probe=(px, py),
+            config = ThermalSimulationConfig(
+                nx=nx,
+                ny=ny,
+                nz=nz,
+                Lx=Lx,
+                Ly=Ly,
+                t_end=t_end,
+                dt=dt,
+                weld=weld,
+                material=material,
+                output_file=None,
+                T1=T1,
+                plate_thickness=plate_thickness / 1e3,
+                path=path,
+                wobble=wobble,
+                probe=(px, py) if solver == "2d" else None,
+                solver=solver,
+            )
+            bar = st.progress(0.0, text="Running thermal simulation...")
+
+            def report_progress(fraction: float) -> None:
+                bar.progress(
+                    min(fraction, 1.0),
+                    text=f"Running 3D thermal simulation... {fraction * 100:.0f}%",
                 )
-                try:
-                    result = run_thermal_simulation(config)
-                    report = build_report(config, result)
-                except WeldSimError as exc:
-                    st.error(str(exc))
-                    st.session_state.pop("thermal_result", None)
-                    st.session_state.pop("weld_report", None)
-                    result = None
+
+            try:
+                result = run_thermal_simulation(config, on_progress=report_progress)
+                report = build_report(config, result)
+            except WeldSimError as exc:
+                st.error(str(exc))
+                st.session_state.pop("thermal_result", None)
+                st.session_state.pop("weld_report", None)
+                result = None
+            finally:
+                bar.empty()
             if result is not None:
                 st.session_state["thermal_result"] = result
                 st.session_state["weld_report"] = report
@@ -724,10 +866,7 @@ def _page_thermal_and_wobble():
                 st.session_state["thermal_config"],
             )
         else:
-            st.info(
-                "Click **Run full 2D thermal simulation** on the **Setup** tab to get "
-                "the weld assessment."
-            )
+            st.info("Run a simulation on the **Setup** tab to get the weld assessment.")
 
     # --- Thermal tab (always rendered, data from session state) ---
     with tab_thermal:
@@ -794,14 +933,18 @@ def _page_thermal_and_wobble():
                 mime="text/csv",
             )
         else:
-            st.info("Click **Run full 2D thermal simulation** on the **Setup** tab to see results.")
+            st.info("Run a simulation on the **Setup** tab to see results.")
 
 
 def _page_keyhole_cfd():
-    st.header("3D Keyhole Laser-Welding CFD")
-    st.write(
-        "Full 3D VOF keyhole model with enthalpy-porosity melting, vapor recoil, "
-        "and preCICE↔CalculiX distortion coupling."
+    st.header("Optional: high-fidelity OpenFOAM export")
+    st.info(
+        "Nothing on this page is needed for a weld assessment — the **Weld simulation** "
+        "page solves the weld through the thickness on its own. This page exports the "
+        "same job as an OpenFOAM case for anyone who wants resolved free-surface CFD: "
+        "vapour recoil, melt flow and a true keyhole shape, which the built-in solver "
+        "approximates with a fixed capillary. OpenFOAM is a separate native package "
+        "(Linux or WSL2) that has to be installed and compiled outside this app."
     )
 
     root = Path(__file__).resolve().parent.parent
@@ -857,7 +1000,7 @@ def _page_keyhole_cfd():
     else:
         st.info("Click **Generate workpiece STL** to create the 3D workpiece.")
 
-    st.subheader("Build & run on WSL2 / Ubuntu")
+    st.subheader("Build & run the case (OpenFOAM install required)")
     st.code(
         """cd ~/WeldSYM/keyhole-cfd
 python3 scripts/configure_case.py
@@ -943,22 +1086,32 @@ laserKeyholeVoF
 def _page_docs():
     st.header("Documentation")
     st.markdown("""
-        **2D thermal + wobble (Windows)**
-        - Explicit finite-difference conduction with a moving Gaussian surface source
+        **Weld simulation — runs entirely inside this app, offline**
+        - Two solvers, both pure Python/NumPy: a fast 2D thin-plate solve for screening,
+          and a 3D through-thickness solve that resolves the depth
+        - Moving Gaussian surface source plus a tapered volumetric keyhole source,
+          latent heat of fusion, surface convection/radiation and an evaporation cap
         - Material library (Ti-6Al-4V, S355) with temperature-dependent properties
-        - Weld path with start/end points and live length readout
-        - Wobble patterns: circle, line/sine, figure-8, infinity
-        - Heat signature = time-integrated Gaussian over effective thickness `h`
-        - Run `python run_gui.py` from the repo root
+        - Wobble patterns: circle, line/sine, figure-8, infinity, with the beam position
+          sub-sampled so high frequencies are not aliased
+        - Outputs: fusion zone and HAZ geometry, penetration, welding mode, t8/5 and
+          cooling rate, HAZ phase fractions and hardness, distortion and residual stress,
+          and the wobble heat-concentration map
+        - In 3D mode penetration, root width, fusion area and HAZ depth are measured on
+          the computed fusion boundary; in 2D mode penetration is an energy-balance estimate
+        - Run `python run_gui.py` from the repo root, or `weldsim --solver 3d` on the CLI
 
-        **3D keyhole CFD (WSL2 + OpenFOAM)**
-        - OpenFOAM VOF solver (`laserKeyholeVoF`) with enthalpy-porosity, recoil pressure,
-          laser ray tracing
-        - `blockMesh`, `laserKeyholeVoF`, and `python3` are **Linux/WSL commands**
-        - Build the custom solver in WSL2 under `keyhole-cfd/solver/laserKeyholeVoF`
-        - The Windows repo is mounted in WSL under `/mnt/c/...`
-        - Use the **3D Keyhole CFD** tab to configure the case, generate the STL, and preview it
-        - Use the **WSL runner** panel to run `blockMesh` / `laserKeyholeVoF` from the GUI
+        **What the built-in solver does not do**
+        - No free-surface motion, vapour recoil, melt flow or Marangoni convection: the
+          keyhole is an assumed tapered capillary, not a solved cavity
+        - Distortion is an inherent-strain estimate, not thermo-mechanical FEA
+        - Treat every number as parameter screening, not weld-procedure qualification
+
+        **Optional: OpenFOAM export (advanced)**
+        - Exports the same job as an OpenFOAM VOF case (`laserKeyholeVoF`) with
+          enthalpy-porosity melting, recoil pressure and laser ray tracing
+        - OpenFOAM is a separate native package: install and compile it on Linux or WSL2
+        - Not required for any of the results above
         """)
 
 
@@ -974,12 +1127,12 @@ def main():
 
     page = st.sidebar.radio(
         "Navigation",
-        ["2D Thermal + Wobble", "3D Keyhole CFD", "Docs"],
+        ["Weld simulation", "OpenFOAM export (optional)", "Docs"],
     )
 
-    if page == "2D Thermal + Wobble":
+    if page == "Weld simulation":
         _page_thermal_and_wobble()
-    elif page == "3D Keyhole CFD":
+    elif page == "OpenFOAM export (optional)":
         _page_keyhole_cfd()
     elif page == "Docs":
         _page_docs()

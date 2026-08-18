@@ -16,10 +16,10 @@ import numpy as np
 
 from .distortion import DistortionEstimate, estimate_distortion
 from .keyhole import KeyholeEstimate, estimate_keyhole
-from .materials import Material
+from .materials import Material, material_from_params
 from .microstructure import MicrostructureResult, predict_microstructure
 from .simulation import ThermalSimulationConfig
-from .types import MaterialParams
+from .thermal.solver3d import SectionMetrics
 from .weld_metrics import WeldMetrics, compute_weld_metrics
 from .wobble_analysis import WobbleAnalysis, analyse_wobble
 
@@ -35,7 +35,29 @@ class WeldReport:
     microstructure: MicrostructureResult | None
     distortion: DistortionEstimate | None
     wobble: WobbleAnalysis | None
+    solver: str = "2d"
+    #: Cross-section measured through the thickness; only a 3D run produces one.
+    section: SectionMetrics | None = None
     warnings: list[str] = field(default_factory=list)
+
+    @property
+    def penetration(self) -> float:
+        """Weld depth (m) — measured through the thickness if a 3D run supplied it."""
+        if self.section is not None:
+            return self.section.penetration
+        return self.keyhole.depth
+
+    @property
+    def penetration_basis(self) -> str:
+        if self.section is not None:
+            return "measured on the 3D fusion boundary"
+        return "energy balance over the melted channel"
+
+    @property
+    def full_penetration(self) -> bool:
+        if self.section is not None:
+            return self.section.full_penetration
+        return self.keyhole.full_penetration
 
     def as_dict(self) -> Dict[str, Any]:
         """JSON-serialisable view, with arrays dropped rather than expanded."""
@@ -67,13 +89,21 @@ class WeldReport:
             f"Heat input:          {self.heat_input:.1f} J/mm (absorbed)",
             f"Peak temperature:    {m.peak_temperature:.0f} K",
             f"Welding mode:        {k.mode} ({k.intensity_mw_per_cm2:.2f} MW/cm² absorbed)",
-            f"Penetration:         {k.depth_mm:.2f} mm"
-            + (" (full penetration)" if k.full_penetration else ""),
+            f"Penetration:         {self.penetration * 1e3:.2f} mm"
+            + (" (full penetration)" if self.full_penetration else "")
+            + f", {self.penetration_basis}",
             f"Fusion zone:         {m.fusion_width_mm:.2f} mm wide, "
             f"{m.fusion_length * 1e3:.1f} mm long",
             f"HAZ:                 {m.haz_width_mm:.2f} mm per side",
             f"Melt dwell:          {m.melt_dwell:.2f} s above solidus",
         ]
+        sec = self.section
+        if sec is not None:
+            lines.append(
+                f"Cross-section:       {sec.width_top_mm:.2f} mm at the surface, "
+                f"{sec.root_width * 1e3:.2f} mm at the root, "
+                f"{sec.fusion_area * 1e6:.2f} mm² fused, depth/width {sec.aspect_ratio:.2f}"
+            )
         if m.t_8_5 is not None:
             lines.append(f"HAZ cooling:         t8/5 = {m.t_8_5:.2f} s")
         if m.cooling_rate is not None:
@@ -135,10 +165,12 @@ def build_report(
     """
     material = config.material
     if not isinstance(material, Material):
-        material = _material_from_params(material)
+        material = material_from_params(material)
 
     x, y = result["x"], result["y"]
     history = result["history"]
+    solution3d = result.get("solution3d")
+    section = None if solution3d is None else solution3d.section_metrics()
     weld = config.weld
     assert weld is not None, "run_thermal_simulation always populates config.weld"
 
@@ -164,7 +196,7 @@ def build_report(
         plate_thickness=config.thickness,
         plate_width=config.Ly,
         plate_length=config.Lx,
-        penetration=keyhole.depth,
+        penetration=keyhole.depth if section is None else section.penetration,
     )
 
     wobble = None
@@ -180,7 +212,10 @@ def build_report(
         )
 
     warnings = list(metrics.warnings)
-    warnings += _energy_consistency_warnings(config, material, metrics)
+    if solution3d is None:
+        warnings += _energy_consistency_warnings(config, material, metrics)
+    else:
+        warnings += solution3d.warnings
     warnings += microstructure.warnings
     warnings += keyhole.notes
     warnings += distortion.notes
@@ -195,6 +230,8 @@ def build_report(
         microstructure=microstructure,
         distortion=distortion,
         wobble=wobble,
+        solver=config.solver,
+        section=section,
         warnings=warnings,
     )
 
@@ -235,22 +272,6 @@ def _no_wobble() -> Any:
     from .weld_path import WobbleParams
 
     return WobbleParams(amplitude=0.0, frequency=0.0)
-
-
-def _material_from_params(params: MaterialParams) -> Material:
-    """Wrap bare thermal properties as a Material so the reports still run.
-
-    Phase-change and alloy data are unknown in this case, so the defaults of
-    :class:`~weldsim.materials.Material` apply and the metallurgical output is
-    generic rather than alloy-specific.
-    """
-    return Material(
-        name="Custom (thermal properties only)",
-        density=params.rho,
-        thermal_conductivity=params.k,
-        specific_heat=params.cp,
-        T0=params.T0,
-    )
 
 
 __all__ = ["WeldReport", "build_report"]
