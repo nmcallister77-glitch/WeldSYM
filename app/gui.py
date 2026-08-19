@@ -56,7 +56,7 @@ from weldsim.weld_path import (
 def _show(fig: plt.Figure | go.Figure) -> None:
     """Render a Matplotlib or Plotly figure and close it if it is a pyplot."""
     if isinstance(fig, go.Figure):
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     else:
         st.pyplot(fig)
         plt.close(fig)
@@ -591,6 +591,53 @@ def _render_weld_report(
     )
 
 
+def _load_preset_into_setup(preset: Preset, top_mm: float, bottom_mm: float) -> None:
+    """Populate the Setup tab widgets from a preset so the user can adjust them before running."""
+    st.session_state["mat_name"] = preset.material
+    st.session_state["op_temp"] = float(preset.material_at_temperature)
+    st.session_state["use_custom"] = False
+    st.session_state["power"] = float(preset.power)
+    st.session_state["efficiency"] = float(preset.efficiency)
+    st.session_state["speed"] = float(preset.speed)
+    st.session_state["beam_radius"] = float(preset.sigma * 1e6)
+    st.session_state["start_x"] = float(preset.start[0])
+    st.session_state["start_y"] = float(preset.start[1])
+    st.session_state["end_x"] = float(preset.end[0])
+    st.session_state["end_y"] = float(preset.end[1])
+    st.session_state["wobble_amp"] = float(preset.wobble_amp_um)
+    st.session_state["wobble_freq"] = float(preset.wobble_freq_hz)
+    st.session_state["wobble_pattern"] = preset.wobble_pattern
+    st.session_state["Lx"] = float(preset.Lx)
+    st.session_state["Ly"] = float(preset.Ly)
+
+    total_mm = top_mm + bottom_mm
+    st.session_state["plate_thickness_mm"] = float(total_mm)
+    st.session_state["T1"] = float(total_mm / 1e3)
+    st.session_state["top_thickness_mm"] = float(top_mm)
+
+    st.session_state["solver"] = preset.solver
+    st.session_state["nx"] = int(preset.nx)
+    st.session_state["ny"] = int(preset.ny)
+    st.session_state["nz"] = int(preset.nz)
+
+    if preset.t_end is not None:
+        t_end = float(preset.t_end)
+    else:
+        length = math.hypot(preset.end[0] - preset.start[0], preset.end[1] - preset.start[1])
+        t_end = min(max(1.3 * length / preset.speed, 0.1), 50.0)
+    st.session_state["t_end"] = t_end
+    st.session_state["dt"] = float(preset.dt)
+
+    probe = preset.probe
+    if probe is None:
+        probe = (
+            (preset.start[0] + preset.end[0]) / 2.0,
+            (preset.start[1] + preset.end[1]) / 2.0,
+        )
+    st.session_state["probe_x"] = float(probe[0])
+    st.session_state["probe_y"] = float(probe[1])
+
+
 def _run_preset(preset: Preset) -> None:
     """Run a configured preset and populate the shared session state used by the result tabs."""
     try:
@@ -731,13 +778,19 @@ def _page_thermal_and_wobble():
                 }
                 st.json(params)
 
-                if st.button(f"Run {preset_name}", type="primary"):
-                    configured = replace(
-                        preset,
-                        top_thickness_mm=top_mm,
-                        bottom_thickness_mm=bottom_mm,
-                    )
-                    _run_preset(configured)
+                col_run, col_load = st.columns(2)
+                with col_run:
+                    if st.button(f"Run {preset_name}", type="primary"):
+                        configured = replace(
+                            preset,
+                            top_thickness_mm=top_mm,
+                            bottom_thickness_mm=bottom_mm,
+                        )
+                        _run_preset(configured)
+                with col_load:
+                    if st.button("Load into setup", type="secondary"):
+                        _load_preset_into_setup(preset, top_mm, bottom_mm)
+                        st.success("Preset loaded into the Setup tab. Adjust and click Run.")
 
     tab_setup, tab_wobble, tab_weld, tab_thermal = st.tabs(
         ["Setup", "Wobble signature", "Weld result", "Thermal field"]
@@ -748,15 +801,16 @@ def _page_thermal_and_wobble():
         with c1:
             st.subheader("Material")
             mat_options = list_materials()
-            mat_name = st.selectbox("Material", mat_options)
+            mat_name = st.selectbox("Material", mat_options, key="mat_name")
             op_temp = st.slider(
                 "Operating temperature for props (K)",
                 293.0,
                 3000.0,
                 800.0,
                 50.0,
+                key="op_temp",
             )
-            use_custom = st.checkbox("Use custom k/rho/cp")
+            use_custom = st.checkbox("Use custom k/rho/cp", key="use_custom")
             if use_custom:
                 k_c = st.number_input("k (W/m·K)", 1.0, 500.0, 50.0)
                 rho_c = st.number_input("rho (kg/m³)", 500.0, 30000.0, 7850.0)
@@ -780,20 +834,20 @@ def _page_thermal_and_wobble():
 
         with c2:
             st.subheader("Laser / process")
-            power = st.slider("Power (W)", 100.0, 8000.0, 1500.0, 50.0)
-            efficiency = st.slider("Efficiency", 0.1, 1.0, 0.8, 0.05)
-            speed = st.slider("Travel speed (m/s)", 0.001, 0.05, 0.01, 0.001)
-            beam_radius = st.slider("Beam 1/e² radius (µm)", 50.0, 1000.0, 500.0, 25.0)
+            power = st.slider("Power (W)", 100.0, 8000.0, 1500.0, 50.0, key="power")
+            efficiency = st.slider("Efficiency", 0.1, 1.0, 0.8, 0.05, key="efficiency")
+            speed = st.slider("Travel speed (m/s)", 0.001, 0.05, 0.01, 0.001, key="speed")
+            beam_radius = st.slider("Beam 1/e² radius (µm)", 50.0, 1000.0, 500.0, 25.0, key="beam_radius")
             sigma = beam_radius * 1e-6
 
         st.subheader("Weld path")
         c3, c4 = st.columns(2)
         with c3:
-            x0 = st.number_input("Start x (m)", 0.0, 0.5, 0.01, 0.001)
-            y0 = st.number_input("Start y (m)", 0.0, 0.2, 0.025, 0.001)
+            x0 = st.number_input("Start x (m)", 0.0, 0.5, 0.01, 0.001, key="start_x")
+            y0 = st.number_input("Start y (m)", 0.0, 0.2, 0.025, 0.001, key="start_y")
         with c4:
-            x1 = st.number_input("End x (m)", 0.0, 0.5, 0.07, 0.001)
-            y1 = st.number_input("End y (m)", 0.0, 0.2, 0.025, 0.001)
+            x1 = st.number_input("End x (m)", 0.0, 0.5, 0.07, 0.001, key="end_x")
+            y1 = st.number_input("End y (m)", 0.0, 0.2, 0.025, 0.001, key="end_y")
         length = math.hypot(x1 - x0, y1 - y0)
         if length <= 0.0:
             st.error("The weld path has zero length. Move the end point away from the start.")
@@ -803,15 +857,16 @@ def _page_thermal_and_wobble():
         st.subheader("Wobble")
         c5, c6, c7 = st.columns(3)
         with c5:
-            wobble_amp = st.slider("Wobble amplitude (µm)", 0.0, 1000.0, 400.0, 25.0)
+            wobble_amp = st.slider("Wobble amplitude (µm)", 0.0, 1000.0, 400.0, 25.0, key="wobble_amp")
         with c6:
             # Low default so individual loops are resolvable in the path preview;
             # production wobble is typically several hundred Hz.
-            wobble_freq = st.slider("Wobble frequency (Hz)", 0, 2000, 20, 10)
+            wobble_freq = st.slider("Wobble frequency (Hz)", 0, 2000, 20, 10, key="wobble_freq")
         with c7:
             pattern = st.selectbox(
                 "Pattern",
                 ["circle", "line", "figure8", "infinity"],
+                key="wobble_pattern",
                 format_func=lambda p: {
                     "circle": "Circle",
                     "line": "Line / Sine",
@@ -823,12 +878,25 @@ def _page_thermal_and_wobble():
         st.subheader("Plate & mesh")
         c8, c9 = st.columns(2)
         with c8:
-            Lx = st.number_input("Plate length Lx (m)", 0.01, 0.5, 0.08, 0.01)
-            Ly = st.number_input("Plate width Ly (m)", 0.01, 0.2, 0.05, 0.001)
+            Lx = st.number_input("Plate length Lx (m)", 0.01, 0.5, 0.08, 0.01, key="Lx")
+            Ly = st.number_input("Plate width Ly (m)", 0.01, 0.2, 0.05, 0.001, key="Ly")
             plate_thickness = st.number_input(
                 "Plate thickness (mm)", 0.1, 50.0, 3.0, 0.1, key="plate_thickness_mm"
             )
-            T1 = st.number_input("Heat-spreading depth h (m)", 0.0005, 0.05, 0.003, 0.0005)
+            T1 = st.number_input("Heat-spreading depth h (m)", 0.0005, 0.05, 0.003, 0.0005, key="T1")
+            top_thickness_mm = st.number_input(
+                "Top sheet thickness (mm) — 0 for single plate",
+                0.0,
+                50.0,
+                0.0,
+                0.1,
+                key="top_thickness_mm",
+                help=(
+                    "For a 2t lap joint, set the top sheet thickness here and the total "
+                    "stack thickness in Plate thickness. The interface plane and width "
+                    "are reported at this depth."
+                ),
+            )
             st.caption(
                 "The thermal model spreads the beam flux over depth h. Set it to the "
                 "expected penetration for a partial-penetration pass, or to the plate "
@@ -838,6 +906,7 @@ def _page_thermal_and_wobble():
             solver = st.radio(
                 "Solver",
                 ["3d", "2d"],
+                key="solver",
                 format_func=lambda s: {
                     "3d": "3D through-thickness (measures penetration)",
                     "2d": "2D thin plate (fast screening)",
@@ -848,9 +917,9 @@ def _page_thermal_and_wobble():
                     "inside the app; no external solver is needed."
                 ),
             )
-            nx = st.slider("Grid points X", 21, 201, 81, 2)
-            ny = st.slider("Grid points Y", 11, 101, 41, 2)
-            nz = st.slider("Grid points through thickness", 5, 61, 13, 2, disabled=solver == "2d")
+            nx = st.slider("Grid points X", 21, 201, 81, 2, key="nx")
+            ny = st.slider("Grid points Y", 11, 101, 41, 2, key="ny")
+            nz = st.slider("Grid points through thickness", 5, 61, 13, 2, disabled=solver == "2d", key="nz")
             # Long enough for the measured section to cool through 500 C, so t8/5
             # is available. The 3D solve pays for every extra second of simulated
             # time, so it gets the shorter tail.
@@ -861,9 +930,9 @@ def _page_thermal_and_wobble():
                 50.0,
                 float(min(max(tail * length / speed, 0.1), 50.0)),
                 0.1,
-                key=f"t_end_{solver}",
+                key="t_end",
             )
-            dt = st.number_input("Time step (s)", 0.001, 0.5, 0.01, 0.001, disabled=solver == "3d")
+            dt = st.number_input("Time step (s)", 0.001, 0.5, 0.01, 0.001, disabled=solver == "3d", key="dt")
             if solver == "3d":
                 seconds = _estimate_3d_runtime(
                     nx, ny, nz, Lx, Ly, plate_thickness / 1e3, t_end, material
@@ -878,9 +947,9 @@ def _page_thermal_and_wobble():
         st.caption("Defaults to the mid-point of the weld path, where the torch passes over it.")
         c10, c11 = st.columns(2)
         with c10:
-            px = st.number_input("Probe x (m)", 0.0, Lx, min((x0 + x1) / 2, Lx), 0.001)
+            px = st.number_input("Probe x (m)", 0.0, Lx, min((x0 + x1) / 2, Lx), 0.001, key="probe_x")
         with c11:
-            py = st.number_input("Probe y (m)", 0.0, Ly, min((y0 + y1) / 2, Ly), 0.001)
+            py = st.number_input("Probe y (m)", 0.0, Ly, min((y0 + y1) / 2, Ly), 0.001, key="probe_y")
 
         weld = WeldParams(
             power=power,
@@ -952,6 +1021,11 @@ def _page_thermal_and_wobble():
             st.session_state["y"] = y
 
         if run_pressed:
+            top_thickness_m = (
+                top_thickness_mm / 1e3
+                if 0.0 < top_thickness_mm < plate_thickness
+                else None
+            )
             config = ThermalSimulationConfig(
                 nx=nx,
                 ny=ny,
@@ -965,6 +1039,7 @@ def _page_thermal_and_wobble():
                 output_file=None,
                 T1=T1,
                 plate_thickness=plate_thickness / 1e3,
+                top_thickness=top_thickness_m,
                 path=path,
                 wobble=wobble,
                 probe=(px, py) if solver == "2d" else None,
