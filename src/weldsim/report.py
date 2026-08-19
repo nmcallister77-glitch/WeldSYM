@@ -19,7 +19,7 @@ from .keyhole import KeyholeEstimate, estimate_keyhole
 from .materials import Material, material_from_params
 from .microstructure import MicrostructureResult, predict_microstructure
 from .simulation import ThermalSimulationConfig
-from .thermal.solver3d import SectionMetrics
+from .thermal.solver3d import InterfaceMetrics, SectionMetrics
 from .weld_metrics import WeldMetrics, compute_weld_metrics
 from .wobble_analysis import WobbleAnalysis, analyse_wobble
 
@@ -38,6 +38,10 @@ class WeldReport:
     solver: str = "2d"
     #: Cross-section measured through the thickness; only a 3D run produces one.
     section: SectionMetrics | None = None
+    #: Interface width statistics; only meaningful when top_thickness is set.
+    interface: InterfaceMetrics | None = None
+    #: Assumed capillary depth from the 3D solver; 2D runs get the energy-balance estimate.
+    keyhole_depth: float | None = None
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -103,6 +107,15 @@ class WeldReport:
                 f"Cross-section:       {sec.width_top_mm:.2f} mm at the surface, "
                 f"{sec.root_width * 1e3:.2f} mm at the root, "
                 f"{sec.fusion_area * 1e6:.2f} mm² fused, depth/width {sec.aspect_ratio:.2f}"
+            )
+        if self.keyhole_depth is not None:
+            lines.append(f"Keyhole depth:       {self.keyhole_depth * 1e3:.2f} mm")
+        if self.interface is not None and self.interface.n_stations > 0:
+            lines.append(
+                f"Interface width:     {self.interface.interface_width_min_mm:.2f} / "
+                f"{self.interface.interface_width_mean_mm:.2f} / "
+                f"{self.interface.interface_width_max_mm:.2f} mm "
+                f"(min/mean/max at {self.interface.interface_depth_mm:.2f} mm depth)"
             )
         if m.t_8_5 is not None:
             lines.append(f"HAZ cooling:         t8/5 = {m.t_8_5:.2f} s")
@@ -171,6 +184,16 @@ def build_report(
     history = result["history"]
     solution3d = result.get("solution3d")
     section = None if solution3d is None else solution3d.section_metrics()
+    interface = None
+    if solution3d is not None:
+        top_thickness = result.get("top_thickness")
+        if top_thickness is None:
+            top_thickness = config.top_thickness
+        if top_thickness is not None:
+            interface = solution3d.interface_metrics(float(top_thickness))
+    keyhole_depth = None
+    if solution3d is not None:
+        keyhole_depth = solution3d.keyhole_depth
     weld = config.weld
     assert weld is not None, "run_thermal_simulation always populates config.weld"
 
@@ -232,6 +255,8 @@ def build_report(
         wobble=wobble,
         solver=config.solver,
         section=section,
+        interface=interface,
+        keyhole_depth=keyhole_depth,
         warnings=warnings,
     )
 

@@ -43,6 +43,7 @@ class ThermalSimulationConfig:
     wobble: WobbleParams | None = None
     probe: tuple[float, float] | None = None
     plate_thickness: float | None = None  # m; defaults to T1
+    top_thickness: float | None = None  # m; top sheet in a 2t lap joint (defaults to plate_thickness)
     phase_change: bool = True  # latent heat, evaporation cap and surface losses
     solver: str = "2d"  # "2d" thin plate or "3d" through-thickness
     nz: int = 17  # grid points through the thickness, 3D solver only
@@ -234,7 +235,7 @@ def run_thermal_simulation(
         os.makedirs(os.path.dirname(config.output_file) or ".", exist_ok=True)
         save_temperature_csv(config.output_file, x, y, T)
 
-    result: Dict[str, Any] = {"x": x, "y": y, "T": T, "history": history}
+    result: Dict[str, Any] = {"x": x, "y": y, "T": T, "history": history, "top_thickness": config.top_thickness}
     if T_probe is not None:
         result["t"] = np.arange(0, config.t_end, config.dt)
         result["T_probe"] = T_probe
@@ -301,6 +302,7 @@ def _run_3d(
         "T": surface,
         "history": solution.to_history(),
         "solution3d": solution,
+        "top_thickness": config.top_thickness,
     }
 
 

@@ -98,6 +98,38 @@ class SectionMetrics:
 
 
 @dataclass
+class InterfaceMetrics:
+    """Weld width measured at the joint interface (top/bottom sheet boundary)."""
+
+    interface_width_min: float  # m, smallest fused width along the weld
+    interface_width_max: float  # m, largest fused width along the weld
+    interface_width_mean: float  # m, average fused width along the weld
+    interface_depth: float  # m, depth of the interface below the top surface
+    n_stations: int  # how many x stations contributed to the stats
+    keyhole_depth: float  # m, assumed capillary depth from the 3D solver
+
+    @property
+    def interface_width_min_mm(self) -> float:
+        return self.interface_width_min * 1e3
+
+    @property
+    def interface_width_max_mm(self) -> float:
+        return self.interface_width_max * 1e3
+
+    @property
+    def interface_width_mean_mm(self) -> float:
+        return self.interface_width_mean * 1e3
+
+    @property
+    def interface_depth_mm(self) -> float:
+        return self.interface_depth * 1e3
+
+    @property
+    def keyhole_depth_mm(self) -> float:
+        return self.keyhole_depth * 1e3
+
+
+@dataclass
 class Solution3D:
     """Fields and geometry from a 3D run.
 
@@ -157,6 +189,58 @@ class Solution3D:
             T_peak=self.section(index),
             solidus=self.solidus,
             haz_limit=self.haz_limit,
+        )
+
+    def interface_metrics(self, top_thickness: float | None = None) -> InterfaceMetrics:
+        """Measure the fused width at the top/bottom sheet interface along the weld.
+
+        For a 2t lap stack the joint is at ``top_thickness`` below the surface.
+        If ``top_thickness`` is not supplied, the mid-thickness is used, which
+        makes sense for a symmetric full-penetration butt joint.
+        """
+        if top_thickness is None:
+            top_thickness = self.thickness / 2.0
+        top_thickness = float(np.clip(top_thickness, 0.0, self.thickness))
+
+        # Find the z-level at or just below the interface depth.
+        iz = int(np.searchsorted(self.z, top_thickness, side="right"))
+        iz = min(max(iz, 0), len(self.z) - 1)
+        # Linear interpolation factor between iz-1 and iz.
+        if iz > 0:
+            z1, z0 = self.z[iz], self.z[iz - 1]
+            if abs(z1 - z0) > 1e-15:
+                frac = (top_thickness - z0) / (z1 - z0)
+            else:
+                frac = 0.0
+        else:
+            frac = 0.0
+
+        # Slice at the interface, with simple linear interpolation in z.
+        if iz > 0 and frac > 0.0:
+            T_interface = (1.0 - frac) * self.T_peak[:, :, iz - 1] + frac * self.T_peak[:, :, iz]
+        else:
+            T_interface = self.T_peak[:, :, iz]
+
+        widths = np.array([level_extent(self.y, T_interface[ix, :], self.solidus) for ix in range(len(self.x))])
+        fused = widths > 0.0
+        if not fused.any():
+            return InterfaceMetrics(
+                interface_width_min=0.0,
+                interface_width_max=0.0,
+                interface_width_mean=0.0,
+                interface_depth=top_thickness,
+                n_stations=0,
+                keyhole_depth=self.keyhole_depth,
+            )
+
+        fused_widths = widths[fused]
+        return InterfaceMetrics(
+            interface_width_min=float(fused_widths.min()),
+            interface_width_max=float(fused_widths.max()),
+            interface_width_mean=float(fused_widths.mean()),
+            interface_depth=top_thickness,
+            n_stations=int(fused_widths.size),
+            keyhole_depth=self.keyhole_depth,
         )
 
     def to_history(self) -> ThermalHistory:

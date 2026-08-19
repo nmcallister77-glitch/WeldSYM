@@ -111,6 +111,7 @@ class Preset:
             output_file=None,
             T1=thickness,
             plate_thickness=thickness,
+            top_thickness=self.top_thickness_mm / 1000.0,
             path=path,
             wobble=wobble,
             probe=probe if self.solver == "2d" else None,

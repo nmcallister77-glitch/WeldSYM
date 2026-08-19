@@ -235,6 +235,7 @@ def main() -> int:
         output_file=args.output,
         T1=thickness,
         plate_thickness=thickness,
+        top_thickness=(args.thickness_top / 1000.0) if args.thickness_top is not None else None,
         path=path,
         wobble=wobble,
         solver=args.solver,
