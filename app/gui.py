@@ -641,7 +641,11 @@ def _load_preset_into_setup(preset: Preset, top_mm: float, bottom_mm: float) -> 
 def _run_preset(preset: Preset) -> None:
     """Run a configured preset and populate the shared session state used by the result tabs."""
     try:
-        config = preset.make_config()
+        config = replace(
+            preset.make_config(),
+            store_3d_frames=True,
+            frame_interval=0.02,
+        )
     except Exception as exc:
         st.error(f"Could not load preset: {exc}")
         return
@@ -1021,6 +1025,7 @@ def _page_thermal_and_wobble():
             st.session_state["y"] = y
 
         if run_pressed:
+            st.session_state["show_3d_animation"] = False
             top_thickness_m = (
                 top_thickness_mm / 1e3
                 if 0.0 < top_thickness_mm < plate_thickness
@@ -1040,6 +1045,8 @@ def _page_thermal_and_wobble():
                 T1=T1,
                 plate_thickness=plate_thickness / 1e3,
                 top_thickness=top_thickness_m,
+                store_3d_frames=solver == "3d",
+                frame_interval=0.02,
                 path=path,
                 wobble=wobble,
                 probe=(px, py) if solver == "2d" else None,
@@ -1172,6 +1179,28 @@ def _page_thermal_and_wobble():
                     )
                 else:
                     _show(plots.plot_temperature_surface(x, y, T))
+
+            with st.expander("3D weld animation", expanded=False):
+                solution3d = result.get("solution3d")
+                if solution3d is not None:
+                    if st.button("Go", key="go_3d_animation"):
+                        st.session_state["show_3d_animation"] = True
+                    if st.session_state.get("show_3d_animation"):
+                        if st.button("Hide animation", key="hide_3d_animation"):
+                            st.session_state["show_3d_animation"] = False
+                        else:
+                            with st.spinner("Building 3D animation..."):
+                                _show(
+                                    plots.plot_weld_3d_animation(
+                                        solution3d,
+                                        material,
+                                        path=st.session_state.get("path"),
+                                        wobble=st.session_state.get("wobble"),
+                                        top_thickness=result.get("top_thickness"),
+                                    )
+                                )
+                else:
+                    st.info("3D animation is only available for 3D through-thickness runs.")
 
             with st.expander("Temperature profiles", expanded=True):
                 prof1, prof2, prof3 = st.tabs(["Longitudinal", "Transverse", "Probe history"])

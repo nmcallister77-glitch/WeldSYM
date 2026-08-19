@@ -30,7 +30,7 @@ the VOF free surface — the trade is that it needs a Linux/WSL2 install.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
 
 import numpy as np
@@ -154,6 +154,8 @@ class Solution3D:
     solidus: float  # K
     haz_limit: float  # K
     warnings: list[str]
+    T_history: list[np.ndarray] = field(default_factory=list)  # optional animation frames
+    frame_times: list[float] = field(default_factory=list)  # times for T_history
 
     @property
     def thickness(self) -> float:
@@ -361,6 +363,9 @@ def run_3d_thermal(
     emissivity: float = 0.7,
     convection_coefficient: float = 15.0,
     on_progress: Optional[Callable[[float], None]] = None,
+    store_frames: bool = False,
+    frame_interval: float = 0.02,
+    max_frames: int = 200,
 ) -> Solution3D:
     """Run the 3D transient solve and return the fields plus weld geometry.
 
@@ -389,6 +394,12 @@ def run_3d_thermal(
     on_progress : callable | None
         Called with a 0..1 fraction roughly 100 times during the run, for GUI
         progress bars.
+    store_frames : bool
+        If True, keep a sequence of 3D temperature snapshots for animation.
+    frame_interval : float
+        Target time between stored frames (s).
+    max_frames : int
+        Hard cap on stored frames to avoid runaway memory use.
 
     Returns
     -------
@@ -515,6 +526,15 @@ def run_3d_thermal(
     inv_dx2, inv_dy2, inv_dz2 = 1.0 / dx**2, 1.0 / dy**2, 1.0 / dz**2
     diagonal = 2.0 * (inv_dx2 + inv_dy2 + inv_dz2)
 
+    T_history: list[np.ndarray] = []
+    frame_times: list[float] = []
+    if store_frames:
+        frame_step = max(1, int(round(frame_interval / dt)))
+        if (n_steps // frame_step) + 1 > max_frames:
+            frame_step = max(1, n_steps // max_frames)
+        T_history.append(T.copy())
+        frame_times.append(0.0)
+
     for step in range(n_steps):
         t = step * dt
 
@@ -615,6 +635,10 @@ def run_3d_thermal(
 
         T, T_new = T_new, T
 
+        if store_frames and (step + 1) % frame_step == 0:
+            T_history.append(T.copy())
+            frame_times.append((step + 1) * dt)
+
         if on_progress is not None and step % max(n_steps // 100, 1) == 0:
             on_progress((step + 1) / n_steps)
 
@@ -642,6 +666,8 @@ def run_3d_thermal(
         extra_dwell=extra_dwell,
         dt=dt,
         steps=n_steps,
+        T_history=T_history,
+        frame_times=frame_times,
         keyhole_fraction=k_fraction,
         keyhole_depth=keyhole_depth,
         solidus=solidus_T,

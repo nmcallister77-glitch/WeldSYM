@@ -44,6 +44,8 @@ class ThermalSimulationConfig:
     probe: tuple[float, float] | None = None
     plate_thickness: float | None = None  # m; defaults to T1
     top_thickness: float | None = None  # m; top sheet in a 2t lap joint (defaults to plate_thickness)
+    store_3d_frames: bool = False  # keep 3D temperature snapshots for post-run animation
+    frame_interval: float = 0.02  # seconds between stored 3D animation frames
     phase_change: bool = True  # latent heat, evaporation cap and surface losses
     solver: str = "2d"  # "2d" thin plate or "3d" through-thickness
     nz: int = 17  # grid points through the thickness, 3D solver only
@@ -288,6 +290,8 @@ def _run_3d(
         keyhole_taper=config.keyhole_taper,
         extra_dwell_temps=_extra_dwell_temps(material),
         on_progress=on_progress,
+        store_frames=config.store_3d_frames,
+        frame_interval=config.frame_interval,
     )
 
     surface = solution.T[:, :, 0]

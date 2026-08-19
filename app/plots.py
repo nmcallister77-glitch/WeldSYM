@@ -17,7 +17,7 @@ from weldsim.calibration import Comparison
 from weldsim.materials import Material
 from weldsim.thermal.solver3d import Solution3D
 from weldsim.report import WeldReport
-from weldsim.weld_path import WeldPath, WobbleParams, beam_trajectory
+from weldsim.weld_path import WeldPath, WobbleParams, beam_at_time, beam_trajectory
 
 
 def _axis_mm(title: str) -> dict[str, Any]:
@@ -246,6 +246,203 @@ def plot_weld_3d(
             aspectmode="data",
             dragmode="orbit",
         ),
+    )
+    return fig
+
+
+def plot_weld_3d_animation(
+    solution: Solution3D,
+    material: Material,
+    path: WeldPath | None = None,
+    wobble: WobbleParams | None = None,
+    top_thickness: float | None = None,
+    fps: int = 15,
+    max_points: int = 20_000,
+) -> go.Figure:
+    """Animated 3D point-cloud of the weld being made, with play/pause and a Go button."""
+    if not solution.T_history:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No 3D animation frames were stored for this run.",
+            showarrow=False,
+            font=dict(size=14),
+        )
+        return fig
+
+    x = np.asarray(solution.x) * 1e3
+    y = np.asarray(solution.y) * 1e3
+    z = np.asarray(solution.z) * 1e3
+    X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
+    x_all = X.ravel()
+    y_all = Y.ravel()
+    z_all = Z.ravel()
+
+    T_peak_r = solution.T_peak.ravel()
+    solidus = float(material.solidus)
+    fused = T_peak_r >= solidus
+    if fused.sum() > max_points:
+        # Keep the hottest points to show the heart of the weld.
+        idx = np.argpartition(T_peak_r[fused], -max_points)[-max_points:]
+        fused_idx = np.nonzero(fused)[0][idx]
+    else:
+        fused_idx = np.nonzero(fused)[0]
+
+    x_pts = x_all[fused_idx]
+    y_pts = y_all[fused_idx]
+    z_pts = z_all[fused_idx]
+
+    # Base (static) traces: interface plane and start/end markers.
+    base_traces: list[Any] = []
+    if top_thickness is not None and 0.0 < top_thickness < solution.thickness:
+        z_plane = top_thickness * 1e3
+        Xs, Ys = np.meshgrid(x, y, indexing="ij")
+        base_traces.append(
+            go.Surface(
+                x=Xs,
+                y=Ys,
+                z=np.full(Xs.shape, z_plane),
+                colorscale=[[0, "cyan"], [1, "cyan"]],
+                showscale=False,
+                opacity=0.12,
+                name="Plate interface",
+                hoverinfo="skip",
+            )
+        )
+
+    base_traces.append(
+        go.Scatter3d(
+            x=x_pts,
+            y=y_pts,
+            z=z_pts,
+            mode="markers",
+            marker=dict(size=2, color="rgba(255,50,50,0.6)"),
+            name="fused zone",
+            hoverinfo="skip",
+        )
+    )
+    base_traces.append(
+        go.Scatter3d(
+            x=[],
+            y=[],
+            z=[],
+            mode="markers",
+            marker=dict(size=5, color="cyan", symbol="diamond"),
+            name="beam",
+            hoverinfo="skip",
+        )
+    )
+
+    # Build frames.
+    frames: list[go.Frame] = []
+    fused_color = "rgba(255,50,50,0.6)"
+    hide_color = "rgba(0,0,0,0)"
+    for t, T in zip(solution.frame_times, solution.T_history):
+        T_r = T.ravel()[fused_idx]
+        colors = np.where(T_r >= solidus, fused_color, hide_color)
+        if path is not None:
+            t_clip = float(min(t, path.duration))
+            xb, yb = beam_at_time(path, wobble or WobbleParams(0.0, 0.0, "circle"), t_clip)
+            xb, yb = float(xb * 1e3), float(yb * 1e3)
+        else:
+            xb, yb = float("nan"), float("nan")
+        frames.append(
+            go.Frame(
+                name=f"t={t:.3f}",
+                data=[
+                    go.Scatter3d(
+                        x=x_pts,
+                        y=y_pts,
+                        z=z_pts,
+                        mode="markers",
+                        marker=dict(size=2, color=list(colors)),
+                        name="fused zone",
+                        hoverinfo="skip",
+                    ),
+                    go.Scatter3d(
+                        x=[xb],
+                        y=[yb],
+                        z=[0.0],
+                        mode="markers",
+                        marker=dict(size=5, color="cyan", symbol="diamond"),
+                        name="beam",
+                        hoverinfo="skip",
+                    ),
+                ],
+            )
+        )
+
+    slider_steps = [
+        {
+            "args": [
+                [f"t={t:.3f}"],
+                {
+                    "frame": {"duration": 0, "redraw": True},
+                    "mode": "immediate",
+                    "transition": {"duration": 0},
+                },
+            ],
+            "label": f"{t:.2f}",
+            "method": "animate",
+        }
+        for t in solution.frame_times
+    ]
+
+    fig = go.Figure(data=base_traces, frames=frames)
+    fig.update_layout(
+        **_default_layout("3D weld animation"),
+        scene=dict(
+            xaxis=dict(title="x (mm)"),
+            yaxis=dict(title="y (mm)"),
+            zaxis=dict(title="z (mm)", autorange="reversed"),
+            aspectmode="data",
+            dragmode="orbit",
+        ),
+        updatemenus=[
+            {
+                "type": "buttons",
+                "direction": "left",
+                "x": 0.1,
+                "y": 1.15,
+                "showactive": False,
+                "buttons": [
+                    {
+                        "label": "▶ Go",
+                        "method": "animate",
+                        "args": [
+                            None,
+                            {
+                                "frame": {"duration": int(1000 / fps), "redraw": True},
+                                "transition": {"duration": int(1000 / fps), "easing": "linear"},
+                                "fromcurrent": True,
+                                "mode": "immediate",
+                            },
+                        ],
+                    },
+                    {
+                        "label": "⏸ Pause",
+                        "method": "animate",
+                        "args": [
+                            [None],
+                            {
+                                "frame": {"duration": 0, "redraw": False},
+                                "mode": "immediate",
+                                "transition": {"duration": 0},
+                            },
+                        ],
+                    },
+                ],
+            }
+        ],
+        sliders=[
+            {
+                "active": 0,
+                "yanchor": "top",
+                "xanchor": "left",
+                "x": 0.15,
+                "y": -0.05,
+                "steps": slider_steps,
+            }
+        ],
     )
     return fig
 
