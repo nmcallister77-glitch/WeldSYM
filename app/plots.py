@@ -148,19 +148,94 @@ def _plate_traces(
     thickness: float,
     top_thickness: float | None = None,
 ) -> list[Any]:
-    """Wireframe + interface surface that make a 2t lap joint look like two stacked plates."""
+    """Wireframe + mesh that make a 2t lap joint look like two stacked plates."""
     x0, x1 = float(x[0]) * 1e3, float(x[-1]) * 1e3
     y0, y1 = float(y[0]) * 1e3, float(y[-1]) * 1e3
     z_top = 0.0
     z_bot = float(thickness) * 1e3
 
-    def _loop(x0: float, x1: float, y0: float, y1: float, z: float) -> list[float]:
-        return [x0, x1, x1, x0, x0, None, y0, y0, y1, y1, y0, None, z, z, z, z, z, None]
+    def _box_vertices(z0: float, z1: float) -> dict[str, list[float]]:
+        return {
+            "x": [x0, x1, x1, x0, x0, x1, x1, x0],
+            "y": [y0, y0, y1, y1, y0, y0, y1, y1],
+            "z": [z0, z0, z0, z0, z1, z1, z1, z1],
+        }
 
+    def _box_faces() -> tuple[list[int], list[int], list[int]]:
+        # 12 triangles for a box
+        faces = [
+            (0, 1, 2),
+            (0, 2, 3),  # bottom
+            (4, 6, 5),
+            (4, 7, 6),  # top
+            (0, 4, 5),
+            (0, 5, 1),  # side y0
+            (1, 5, 6),
+            (1, 6, 2),  # side x1
+            (2, 6, 7),
+            (2, 7, 3),  # side y1
+            (3, 7, 4),
+            (3, 4, 0),  # side x0
+        ]
+        i = [f[0] for f in faces]
+        j = [f[1] for f in faces]
+        k = [f[2] for f in faces]
+        return i, j, k
+
+    def _box_wireframe(z0: float, z1: float) -> tuple[list[float], list[float], list[float]]:
+        xs, ys, zs = [], [], []
+        for z in (z0, z1):
+            xs.extend([x0, x1, x1, x0, x0, None])
+            ys.extend([y0, y0, y1, y1, y0, None])
+            zs.extend([z, z, z, z, z, None])
+        for xi in (x0, x1):
+            for yi in (y0, y1):
+                xs.extend([xi, xi, None])
+                ys.extend([yi, yi, None])
+                zs.extend([z0, z1, None])
+        return xs, ys, zs
+
+    i, j, k = _box_faces()
     traces: list[Any] = []
+
     if top_thickness is not None and 0.0 < top_thickness < thickness:
         z_if = float(top_thickness) * 1e3
         Xs, Ys = np.meshgrid(x * 1e3, y * 1e3, indexing="ij")
+
+        # Translucent volumes so the two plates are visually distinct.
+        top_box = _box_vertices(z_top, z_if)
+        bot_box = _box_vertices(z_if, z_bot)
+        traces.append(
+            go.Mesh3d(
+                x=top_box["x"],
+                y=top_box["y"],
+                z=top_box["z"],
+                i=i,
+                j=j,
+                k=k,
+                color="deepskyblue",
+                opacity=0.08,
+                name="Top sheet",
+                hoverinfo="skip",
+                flatshading=True,
+            )
+        )
+        traces.append(
+            go.Mesh3d(
+                x=bot_box["x"],
+                y=bot_box["y"],
+                z=bot_box["z"],
+                i=i,
+                j=j,
+                k=k,
+                color="orangered",
+                opacity=0.08,
+                name="Bottom sheet",
+                hoverinfo="skip",
+                flatshading=True,
+            )
+        )
+
         traces.append(
             go.Surface(
                 x=Xs,
@@ -174,67 +249,54 @@ def _plate_traces(
             )
         )
 
-        xs_top: list[float] = []
-        ys_top: list[float] = []
-        zs_top: list[float] = []
-        xs_bot: list[float] = []
-        ys_bot: list[float] = []
-        zs_bot: list[float] = []
-
-        xs_top.extend(_loop(x0, x1, y0, y1, z_top)[:6])
-        ys_top.extend(_loop(x0, x1, y0, y1, z_top)[6:12])
-        zs_top.extend(_loop(x0, x1, y0, y1, z_top)[12:])
-
-        xs_bot.extend(_loop(x0, x1, y0, y1, z_bot)[:6])
-        ys_bot.extend(_loop(x0, x1, y0, y1, z_bot)[6:12])
-        zs_bot.extend(_loop(x0, x1, y0, y1, z_bot)[12:])
-
-        for xi in (x0, x1):
-            for yi in (y0, y1):
-                xs_top.extend([xi, xi, None])
-                ys_top.extend([yi, yi, None])
-                zs_top.extend([z_top, z_if, None])
-                xs_bot.extend([xi, xi, None])
-                ys_bot.extend([yi, yi, None])
-                zs_bot.extend([z_if, z_bot, None])
-
-        traces.append(
-            go.Scatter3d(
-                x=xs_top,
-                y=ys_top,
-                z=zs_top,
-                mode="lines",
-                line=dict(color="deepskyblue", width=3),
-                name="Top sheet",
-                hoverinfo="skip",
+        # Wireframes on top of the volumes.
+        for label, z0, z1, color in (
+            ("Top sheet", z_top, z_if, "deepskyblue"),
+            ("Bottom sheet", z_if, z_bot, "orangered"),
+        ):
+            xs, ys, zs = _box_wireframe(z0, z1)
+            traces.append(
+                go.Scatter3d(
+                    x=xs,
+                    y=ys,
+                    z=zs,
+                    mode="lines",
+                    line=dict(color=color, width=2),
+                    name=label,
+                    hoverinfo="skip",
+                )
             )
-        )
+
+        # Interface loop in a contrasting, thicker line.
         traces.append(
             go.Scatter3d(
-                x=xs_bot,
-                y=ys_bot,
-                z=zs_bot,
+                x=[x0, x1, x1, x0, x0],
+                y=[y0, y0, y1, y1, y0],
+                z=[z_if, z_if, z_if, z_if, z_if],
                 mode="lines",
-                line=dict(color="orangered", width=3),
-                name="Bottom sheet",
+                line=dict(color="gold", width=3),
+                name="Interface loop",
                 hoverinfo="skip",
             )
         )
     else:
-        xs: list[float] = []
-        ys: list[float] = []
-        zs: list[float] = []
-        xs.extend(_loop(x0, x1, y0, y1, z_top)[:6])
-        ys.extend(_loop(x0, x1, y0, y1, z_top)[6:12])
-        zs.extend(_loop(x0, x1, y0, y1, z_top)[12:])
-        xs.extend(_loop(x0, x1, y0, y1, z_bot)[:6])
-        ys.extend(_loop(x0, x1, y0, y1, z_bot)[6:12])
-        zs.extend(_loop(x0, x1, y0, y1, z_bot)[12:])
-        for xi in (x0, x1):
-            for yi in (y0, y1):
-                xs.extend([xi, xi, None])
-                ys.extend([yi, yi, None])
-                zs.extend([z_top, z_bot, None])
+        box = _box_vertices(z_top, z_bot)
+        traces.append(
+            go.Mesh3d(
+                x=box["x"],
+                y=box["y"],
+                z=box["z"],
+                i=i,
+                j=j,
+                k=k,
+                color="lightgrey",
+                opacity=0.06,
+                name="Plate volume",
+                hoverinfo="skip",
+                flatshading=True,
+            )
+        )
+        xs, ys, zs = _box_wireframe(z_top, z_bot)
         traces.append(
             go.Scatter3d(
                 x=xs,
