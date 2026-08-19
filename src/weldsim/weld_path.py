@@ -11,7 +11,7 @@ Provides:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Tuple
 
 import numpy as np
@@ -19,23 +19,55 @@ import numpy as np
 
 @dataclass
 class WeldPath:
-    """Polyline weld path. For now a single straight segment."""
+    """Polyline weld path; supports straight segments, arcs and spirals."""
 
     start: Tuple[float, float]
     end: Tuple[float, float]
     speed: float  # m/s
+    points: List[Tuple[float, float]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.points:
+            self.points = [self.start, self.end]
+        else:
+            self.start = self.points[0]
+            self.end = self.points[-1]
 
     @property
     def length(self) -> float:
-        """Path length (m)."""
-        x0, y0 = self.start
-        x1, y1 = self.end
-        return math.hypot(x1 - x0, y1 - y0)
+        """Total path length (m)."""
+        total = 0.0
+        for i in range(len(self.points) - 1):
+            x0, y0 = self.points[i]
+            x1, y1 = self.points[i + 1]
+            total += math.hypot(x1 - x0, y1 - y0)
+        return total
 
     @property
     def duration(self) -> float:
         """Travel time from start to end (s)."""
+        if self.speed <= 0:
+            return 0.0
         return self.length / self.speed
+
+    def _segment_at(self, t: float) -> Tuple[int, float]:
+        """Return (segment index, interpolation fraction) for time t."""
+        if t <= 0:
+            return 0, 0.0
+        if t >= self.duration:
+            return max(0, len(self.points) - 2), 1.0
+        dist = t * self.speed
+        cum = 0.0
+        for i in range(len(self.points) - 1):
+            x0, y0 = self.points[i]
+            x1, y1 = self.points[i + 1]
+            seg_len = math.hypot(x1 - x0, y1 - y0)
+            if seg_len == 0:
+                continue
+            if cum + seg_len >= dist:
+                return i, (dist - cum) / seg_len
+            cum += seg_len
+        return max(0, len(self.points) - 2), 1.0
 
     def nominal_position(self, t: float) -> Tuple[float, float]:
         """Beam centre without wobble at time t (m)."""
@@ -43,16 +75,19 @@ class WeldPath:
             return self.start
         if t >= self.duration:
             return self.end
-        x0, y0 = self.start
-        x1, y1 = self.end
-        s = t / self.duration
-        return (x0 + s * (x1 - x0), y0 + s * (y1 - y0))
+        i, frac = self._segment_at(t)
+        x0, y0 = self.points[i]
+        x1, y1 = self.points[i + 1]
+        return (x0 + frac * (x1 - x0), y0 + frac * (y1 - y0))
 
     def tangent(self, t: float) -> Tuple[float, float]:
         """Unit tangent vector at time t."""
-        x0, y0 = self.start
-        x1, y1 = self.end
-        L = self.length
+        i, _ = self._segment_at(t)
+        if i >= len(self.points) - 1:
+            i = max(0, len(self.points) - 2)
+        x0, y0 = self.points[i]
+        x1, y1 = self.points[i + 1]
+        L = math.hypot(x1 - x0, y1 - y0)
         if L == 0:
             return (1.0, 0.0)
         return ((x1 - x0) / L, (y1 - y0) / L)
@@ -61,6 +96,46 @@ class WeldPath:
         """Unit normal vector (perpendicular to tangent)."""
         tx, ty = self.tangent(t)
         return (-ty, tx)
+
+    @classmethod
+    def circle(
+        cls,
+        center: Tuple[float, float],
+        radius: float,
+        speed: float,
+        turns: float = 1.0,
+        n_points: int = 128,
+        start_angle: float = 0.0,
+    ) -> "WeldPath":
+        """Circular weld path. ``turns=1`` is one full revolution."""
+        points: List[Tuple[float, float]] = []
+        total_angle = 2.0 * math.pi * turns
+        for k in range(n_points + 1):
+            angle = start_angle + total_angle * k / n_points
+            x = float(center[0] + radius * math.cos(angle))
+            y = float(center[1] + radius * math.sin(angle))
+            points.append((x, y))
+        return cls(start=points[0], end=points[-1], speed=speed, points=points)
+
+    @classmethod
+    def spiral(
+        cls,
+        center: Tuple[float, float],
+        r_start: float,
+        r_end: float,
+        speed: float,
+        turns: float = 2.0,
+        n_points: int = 256,
+    ) -> "WeldPath":
+        """Archimedean spiral weld path."""
+        points: List[Tuple[float, float]] = []
+        for k in range(n_points + 1):
+            angle = 2.0 * math.pi * turns * k / n_points
+            r = r_start + (r_end - r_start) * k / n_points
+            x = float(center[0] + r * math.cos(angle))
+            y = float(center[1] + r * math.sin(angle))
+            points.append((x, y))
+        return cls(start=points[0], end=points[-1], speed=speed, points=points)
 
 
 @dataclass
@@ -169,6 +244,8 @@ def heat_signature(
     from ``t_start`` to ``t_end``. Useful for visualising the beam track before
     running the full thermal sim.
     """
+    if t_end > path.duration:
+        t_end = path.duration
     X, Y = np.meshgrid(x, y, indexing="ij")
     Q = np.zeros_like(X)
     q_eff = power * efficiency

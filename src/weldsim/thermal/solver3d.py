@@ -223,7 +223,9 @@ class Solution3D:
         else:
             T_interface = self.T_peak[:, :, iz]
 
-        widths = np.array([level_extent(self.y, T_interface[ix, :], self.solidus) for ix in range(len(self.x))])
+        widths = np.array(
+            [level_extent(self.y, T_interface[ix, :], self.solidus) for ix in range(len(self.x))]
+        )
         fused = widths > 0.0
         if not fused.any():
             return InterfaceMetrics(
@@ -540,30 +542,31 @@ def run_3d_thermal(
 
         # --- source term, built only on a window around the beam -------------
         Q[:] = 0.0
-        for sub in range(sub_samples):
-            x_src, y_src = beam_position(t + (sub + 0.5) * dt / sub_samples)
-            i0 = max(int(round(x_src / dx)) - half_i, 0)
-            i1 = min(int(round(x_src / dx)) + half_i + 1, nx)
-            j0 = max(int(round(y_src / dy)) - half_j, 0)
-            j1 = min(int(round(y_src / dy)) + half_j + 1, ny)
-            if i0 >= i1 or j0 >= j1:
-                continue
-            r2 = (x[i0:i1, None] - x_src) ** 2 + (y[None, j0:j1] - y_src) ** 2
+        if path is None or t < path.duration:
+            for sub in range(sub_samples):
+                x_src, y_src = beam_position(t + (sub + 0.5) * dt / sub_samples)
+                i0 = max(int(round(x_src / dx)) - half_i, 0)
+                i1 = min(int(round(x_src / dx)) + half_i + 1, nx)
+                j0 = max(int(round(y_src / dy)) - half_j, 0)
+                j1 = min(int(round(y_src / dy)) + half_j + 1, ny)
+                if i0 >= i1 or j0 >= j1:
+                    continue
+                r2 = (x[i0:i1, None] - x_src) ** 2 + (y[None, j0:j1] - y_src) ** 2
 
-            if surface_share > 0:
-                # Absorbed on the top face, so it heats the first cell layer.
-                spot = np.exp(-r2 / two_sigma2)
-                total = spot.sum() * cell_volume * layer_weight[0]
-                if total > 0:
-                    Q[i0:i1, j0:j1, 0] += (surface_share / sub_samples) * spot / total
-            if keyhole_share > 0 and in_channel.any():
-                radial = np.exp(
-                    -r2[:, :, None] / (2.0 * np.maximum(radius_z[None, None, :], 1e-9) ** 2)
-                )
-                radial = radial * in_channel[None, None, :]
-                total = (radial * layer_weight[None, None, :]).sum() * cell_volume
-                if total > 0:
-                    Q[i0:i1, j0:j1, :] += (keyhole_share / sub_samples) * radial / total
+                if surface_share > 0:
+                    # Absorbed on the top face, so it heats the first cell layer.
+                    spot = np.exp(-r2 / two_sigma2)
+                    total = spot.sum() * cell_volume * layer_weight[0]
+                    if total > 0:
+                        Q[i0:i1, j0:j1, 0] += (surface_share / sub_samples) * spot / total
+                if keyhole_share > 0 and in_channel.any():
+                    radial = np.exp(
+                        -r2[:, :, None] / (2.0 * np.maximum(radius_z[None, None, :], 1e-9) ** 2)
+                    )
+                    radial = radial * in_channel[None, None, :]
+                    total = (radial * layer_weight[None, None, :]).sum() * cell_volume
+                    if total > 0:
+                        Q[i0:i1, j0:j1, :] += (keyhole_share / sub_samples) * radial / total
 
         # --- explicit conduction update ---------------------------------------
         # The top and bottom faces are mirrored, so the whole thickness — faces

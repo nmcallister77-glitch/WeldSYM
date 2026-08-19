@@ -11,7 +11,6 @@ from typing import Any
 
 import numpy as np
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 from weldsim.calibration import Comparison
 from weldsim.materials import Material
@@ -53,7 +52,9 @@ def _log_colorbar(z: np.ndarray, colorbar_title: str) -> dict[str, Any]:
     )
 
 
-def _zone_levels_and_labels(T_peak: np.ndarray, material: Material) -> tuple[list[float], list[str], list[str]]:
+def _zone_levels_and_labels(
+    T_peak: np.ndarray, material: Material
+) -> tuple[list[float], list[str], list[str]]:
     """Categorical temperature levels and labels for the zone map."""
     levels: list[float] = [float(T_peak.min()), float(material.haz_outer_temperature)]
     labels: list[str] = ["Unaffected"]
@@ -141,6 +142,113 @@ def plot_temperature_surface(x: np.ndarray, y: np.ndarray, T: np.ndarray) -> go.
     return fig
 
 
+def _plate_traces(
+    x: np.ndarray,
+    y: np.ndarray,
+    thickness: float,
+    top_thickness: float | None = None,
+) -> list[Any]:
+    """Wireframe + interface surface that make a 2t lap joint look like two stacked plates."""
+    x0, x1 = float(x[0]) * 1e3, float(x[-1]) * 1e3
+    y0, y1 = float(y[0]) * 1e3, float(y[-1]) * 1e3
+    z_top = 0.0
+    z_bot = float(thickness) * 1e3
+
+    def _loop(x0: float, x1: float, y0: float, y1: float, z: float) -> list[float]:
+        return [x0, x1, x1, x0, x0, None, y0, y0, y1, y1, y0, None, z, z, z, z, z, None]
+
+    traces: list[Any] = []
+    if top_thickness is not None and 0.0 < top_thickness < thickness:
+        z_if = float(top_thickness) * 1e3
+        Xs, Ys = np.meshgrid(x * 1e3, y * 1e3, indexing="ij")
+        traces.append(
+            go.Surface(
+                x=Xs,
+                y=Ys,
+                z=np.full(Xs.shape, z_if),
+                colorscale=[[0, "gold"], [1, "gold"]],
+                showscale=False,
+                opacity=0.25,
+                name="Lap joint interface",
+                hoverinfo="skip",
+            )
+        )
+
+        xs_top: list[float] = []
+        ys_top: list[float] = []
+        zs_top: list[float] = []
+        xs_bot: list[float] = []
+        ys_bot: list[float] = []
+        zs_bot: list[float] = []
+
+        xs_top.extend(_loop(x0, x1, y0, y1, z_top)[:6])
+        ys_top.extend(_loop(x0, x1, y0, y1, z_top)[6:12])
+        zs_top.extend(_loop(x0, x1, y0, y1, z_top)[12:])
+
+        xs_bot.extend(_loop(x0, x1, y0, y1, z_bot)[:6])
+        ys_bot.extend(_loop(x0, x1, y0, y1, z_bot)[6:12])
+        zs_bot.extend(_loop(x0, x1, y0, y1, z_bot)[12:])
+
+        for xi in (x0, x1):
+            for yi in (y0, y1):
+                xs_top.extend([xi, xi, None])
+                ys_top.extend([yi, yi, None])
+                zs_top.extend([z_top, z_if, None])
+                xs_bot.extend([xi, xi, None])
+                ys_bot.extend([yi, yi, None])
+                zs_bot.extend([z_if, z_bot, None])
+
+        traces.append(
+            go.Scatter3d(
+                x=xs_top,
+                y=ys_top,
+                z=zs_top,
+                mode="lines",
+                line=dict(color="deepskyblue", width=3),
+                name="Top sheet",
+                hoverinfo="skip",
+            )
+        )
+        traces.append(
+            go.Scatter3d(
+                x=xs_bot,
+                y=ys_bot,
+                z=zs_bot,
+                mode="lines",
+                line=dict(color="orangered", width=3),
+                name="Bottom sheet",
+                hoverinfo="skip",
+            )
+        )
+    else:
+        xs: list[float] = []
+        ys: list[float] = []
+        zs: list[float] = []
+        xs.extend(_loop(x0, x1, y0, y1, z_top)[:6])
+        ys.extend(_loop(x0, x1, y0, y1, z_top)[6:12])
+        zs.extend(_loop(x0, x1, y0, y1, z_top)[12:])
+        xs.extend(_loop(x0, x1, y0, y1, z_bot)[:6])
+        ys.extend(_loop(x0, x1, y0, y1, z_bot)[6:12])
+        zs.extend(_loop(x0, x1, y0, y1, z_bot)[12:])
+        for xi in (x0, x1):
+            for yi in (y0, y1):
+                xs.extend([xi, xi, None])
+                ys.extend([yi, yi, None])
+                zs.extend([z_top, z_bot, None])
+        traces.append(
+            go.Scatter3d(
+                x=xs,
+                y=ys,
+                z=zs,
+                mode="lines",
+                line=dict(color="lightslategrey", width=1),
+                name="Plate edges",
+                hoverinfo="skip",
+            )
+        )
+    return traces
+
+
 def plot_weld_3d(
     solution: Solution3D,
     material: Material,
@@ -171,7 +279,9 @@ def plot_weld_3d(
             showscale=False,
             name="Fusion zone",
             opacity=0.85,
-            hovertemplate="x %{x:.2f}<br>y %{y:.2f}<br>z %{z:.2f}<br>fusion boundary<extra></extra>",
+            hovertemplate=(
+                "x %{x:.2f}<br>y %{y:.2f}<br>z %{z:.2f}<br>fusion boundary<extra></extra>"
+            ),
         )
     )
 
@@ -194,22 +304,7 @@ def plot_weld_3d(
     )
 
     # Top/bottom sheet interface plane for 2t lap joints
-    if top_thickness is not None and 0.0 < top_thickness < solution.thickness:
-        z_plane = top_thickness * 1e3
-        nx, ny = len(solution.x), len(solution.y)
-        Xs, Ys = np.meshgrid(solution.x * 1e3, solution.y * 1e3, indexing="ij")
-        traces.append(
-            go.Surface(
-                x=Xs,
-                y=Ys,
-                z=np.full((nx, ny), z_plane),
-                colorscale=[[0, "cyan"], [1, "cyan"]],
-                showscale=False,
-                opacity=0.15,
-                name="Plate interface",
-                hoverinfo="skip",
-            )
-        )
+    traces.extend(_plate_traces(solution.x, solution.y, solution.thickness, top_thickness))
 
     # Beam path (top surface, z=0)
     if path is not None:
@@ -291,23 +386,16 @@ def plot_weld_3d_animation(
     y_pts = y_all[fused_idx]
     z_pts = z_all[fused_idx]
 
-    # Base (static) traces: interface plane and start/end markers.
+    # Base (static) traces: plate wireframe, interface plane, and fused zone.
     base_traces: list[Any] = []
-    if top_thickness is not None and 0.0 < top_thickness < solution.thickness:
-        z_plane = top_thickness * 1e3
-        Xs, Ys = np.meshgrid(x, y, indexing="ij")
-        base_traces.append(
-            go.Surface(
-                x=Xs,
-                y=Ys,
-                z=np.full(Xs.shape, z_plane),
-                colorscale=[[0, "cyan"], [1, "cyan"]],
-                showscale=False,
-                opacity=0.12,
-                name="Plate interface",
-                hoverinfo="skip",
-            )
+    base_traces.extend(
+        _plate_traces(
+            np.asarray(solution.x),
+            np.asarray(solution.y),
+            solution.thickness,
+            top_thickness,
         )
+    )
 
     base_traces.append(
         go.Scatter3d(
@@ -468,7 +556,9 @@ def plot_heat_signature(
             z=logQ.T,
             colorscale="Hot",
             colorbar=_log_colorbar(Qplot, "Q (J/m³)"),
-            hovertemplate="x %{x:.2f} mm<br>y %{y:.2f} mm<br>Q %{customdata:.2e} J/m³<extra></extra>",
+            hovertemplate=(
+                "x %{x:.2f} mm<br>y %{y:.2f} mm<br>Q %{customdata:.2e} J/m³<extra></extra>"
+            ),
             customdata=Qplot.T,
         )
     ]
@@ -525,9 +615,7 @@ def plot_temperature_profile(
     return fig
 
 
-def plot_probe_history(
-    t: np.ndarray, T_probe: np.ndarray, material: Material
-) -> go.Figure:
+def plot_probe_history(t: np.ndarray, T_probe: np.ndarray, material: Material) -> go.Figure:
     """Probe time-temperature history."""
     fig = go.Figure()
     fig.add_trace(
@@ -539,8 +627,12 @@ def plot_probe_history(
             name="probe T",
         )
     )
-    fig.add_hline(y=material.solidus, line_dash="dash", line_color="orange", annotation_text="solidus")
-    fig.add_hline(y=material.liquidus, line_dash="dash", line_color="red", annotation_text="liquidus")
+    fig.add_hline(
+        y=material.solidus, line_dash="dash", line_color="orange", annotation_text="solidus"
+    )
+    fig.add_hline(
+        y=material.liquidus, line_dash="dash", line_color="red", annotation_text="liquidus"
+    )
     fig.update_layout(
         **_default_layout("Time-temperature history at probe"),
         xaxis=dict(title="Time (s)", gridcolor="rgba(0,0,0,0.1)"),
@@ -642,7 +734,12 @@ def plot_zone_map(
             x=x * 1e3,
             y=y * 1e3,
             z=T_peak.T,
-            contours=dict(start=material.haz_outer_temperature, end=material.haz_outer_temperature, size=1, coloring="lines"),
+            contours=dict(
+                start=material.haz_outer_temperature,
+                end=material.haz_outer_temperature,
+                size=1,
+                coloring="lines",
+            ),
             line=dict(color="lime", width=1.5),
             showscale=False,
             hoverinfo="skip",
@@ -715,7 +812,9 @@ def _make_contour_figure(
     fig.update_layout(
         **_default_layout(title),
         xaxis=_axis_mm(xlabel),
-        yaxis=dict(title=ylabel, autorange="reversed", gridcolor="rgba(0,0,0,0.1)", scaleanchor="x"),
+        yaxis=dict(
+            title=ylabel, autorange="reversed", gridcolor="rgba(0,0,0,0.1)", scaleanchor="x"
+        ),
     )
     return fig
 
@@ -793,8 +892,12 @@ def plot_macro_section(report: WeldReport, material: Material) -> go.Figure:
             name="peak temperature",
         )
     )
-    fig.add_hline(y=material.liquidus, line_dash="dash", line_color="red", annotation_text="liquidus")
-    fig.add_hline(y=material.solidus, line_dash="dash", line_color="orange", annotation_text="solidus")
+    fig.add_hline(
+        y=material.liquidus, line_dash="dash", line_color="red", annotation_text="liquidus"
+    )
+    fig.add_hline(
+        y=material.solidus, line_dash="dash", line_color="orange", annotation_text="solidus"
+    )
     fig.add_hline(
         y=material.haz_outer_temperature,
         line_dash="dash",
@@ -924,7 +1027,17 @@ def plot_measured_vs_predicted(comparison: Comparison) -> go.Figure:
     )
     fig.update_layout(
         **_default_layout("Macro-section parity"),
-        xaxis=dict(title="Measured penetration (mm)", range=[0, limit], gridcolor="rgba(0,0,0,0.1)", scaleanchor="y"),
-        yaxis=dict(title="Predicted penetration (mm)", range=[0, limit], gridcolor="rgba(0,0,0,0.1)", scaleratio=1),
+        xaxis=dict(
+            title="Measured penetration (mm)",
+            range=[0, limit],
+            gridcolor="rgba(0,0,0,0.1)",
+            scaleanchor="y",
+        ),
+        yaxis=dict(
+            title="Predicted penetration (mm)",
+            range=[0, limit],
+            gridcolor="rgba(0,0,0,0.1)",
+            scaleratio=1,
+        ),
     )
     return fig

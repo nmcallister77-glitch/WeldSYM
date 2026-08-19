@@ -237,9 +237,12 @@ def run_2d_fd_thermal(
     for step in range(n_steps):
         t = step * dt
 
-        x_src, y_src = _beam_position(t)
-        r2 = (X - x_src) ** 2 + (Y - y_src) ** 2
-        Q = (q_eff / q_denom) * np.exp(-r2 / (2.0 * weld.sigma**2)) / h_eff
+        if path is None or t < path.duration:
+            x_src, y_src = _beam_position(t)
+            r2 = (X - x_src) ** 2 + (Y - y_src) ** 2
+            Q = (q_eff / q_denom) * np.exp(-r2 / (2.0 * weld.sigma**2)) / h_eff
+        else:
+            Q = np.zeros_like(X)
 
         # Vectorised explicit update (interior points only)
         lap = (T[2:, 1:-1] - 2.0 * T[1:-1, 1:-1] + T[:-2, 1:-1]) / (dx**2) + (

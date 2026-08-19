@@ -43,7 +43,9 @@ class ThermalSimulationConfig:
     wobble: WobbleParams | None = None
     probe: tuple[float, float] | None = None
     plate_thickness: float | None = None  # m; defaults to T1
-    top_thickness: float | None = None  # m; top sheet in a 2t lap joint (defaults to plate_thickness)
+    top_thickness: float | None = (
+        None  # m; top sheet in a 2t lap joint (defaults to plate_thickness)
+    )
     store_3d_frames: bool = False  # keep 3D temperature snapshots for post-run animation
     frame_interval: float = 0.02  # seconds between stored 3D animation frames
     phase_change: bool = True  # latent heat, evaporation cap and surface losses
@@ -237,7 +239,13 @@ def run_thermal_simulation(
         os.makedirs(os.path.dirname(config.output_file) or ".", exist_ok=True)
         save_temperature_csv(config.output_file, x, y, T)
 
-    result: Dict[str, Any] = {"x": x, "y": y, "T": T, "history": history, "top_thickness": config.top_thickness}
+    result: Dict[str, Any] = {
+        "x": x,
+        "y": y,
+        "T": T,
+        "history": history,
+        "top_thickness": config.top_thickness,
+    }
     if T_probe is not None:
         result["t"] = np.arange(0, config.t_end, config.dt)
         result["T_probe"] = T_probe

@@ -46,6 +46,12 @@ class Preset:
     probe: tuple[float, float] | None = None
     keyhole_taper: float | None = None
     custom_krcp: tuple[float, float, float, float] | None = None
+    path_type: str = "line"  # line, circle, spiral
+    center: tuple[float, float] = (0.0, 0.0)
+    radius: float = 0.005
+    turns: float = 1.0
+    r_start: float = 0.0
+    r_end: float = 0.005
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -68,15 +74,32 @@ class Preset:
         else:
             material = load_material(self.material, self.material_at_temperature)
 
+        if self.path_type == "circle":
+            path = WeldPath.circle(
+                center=self.center,
+                radius=self.radius,
+                speed=self.speed,
+                turns=self.turns,
+            )
+        elif self.path_type == "spiral":
+            path = WeldPath.spiral(
+                center=self.center,
+                r_start=self.r_start,
+                r_end=self.r_end,
+                speed=self.speed,
+                turns=self.turns,
+            )
+        else:
+            path = WeldPath(start=self.start, end=self.end, speed=self.speed)
+
         weld = WeldParams(
             power=self.power,
             efficiency=self.efficiency,
             speed=self.speed,
-            start_pos=self.start,
+            start_pos=path.start,
             direction="x",
             sigma=self.sigma,
         )
-        path = WeldPath(start=self.start, end=self.end, speed=self.speed)
         wobble = WobbleParams(
             amplitude=self.wobble_amp_um * 1e-6,
             frequency=self.wobble_freq_hz,
@@ -87,15 +110,12 @@ class Preset:
         t_end = self.t_end
         if t_end is None:
             # Long enough tail for t8/5 measurement; 1.3x weld duration in 3D.
-            length = (
-                (self.end[0] - self.start[0]) ** 2 + (self.end[1] - self.start[1]) ** 2
-            ) ** 0.5
-            t_end = min(max(1.3 * length / self.speed, 0.1), 50.0)
+            t_end = min(max(1.3 * path.length / self.speed, 0.1), 50.0)
 
         probe = self.probe
         if probe is None:
-            mid_x = (self.start[0] + self.end[0]) / 2.0
-            mid_y = (self.start[1] + self.end[1]) / 2.0
+            mid_x = (path.start[0] + path.end[0]) / 2.0
+            mid_y = (path.start[1] + path.end[1]) / 2.0
             probe = (mid_x, mid_y)
 
         return ThermalSimulationConfig(
@@ -159,5 +179,125 @@ PRESETS: dict[str, Preset] = {
             "The small domain and coarse through-thickness grid keep the 3D solve fast "
             "despite copper's high thermal diffusivity.",
         ],
-    )
+    ),
+    "1t copper butt weld": Preset(
+        name="1t copper butt weld",
+        description="Single 1 mm copper sheet, conduction-mode butt weld.",
+        material="Copper",
+        material_at_temperature=1000.0,
+        power=3000.0,
+        efficiency=0.30,
+        speed=0.04,
+        sigma=80e-6,
+        start=(0.005, 0.005),
+        end=(0.025, 0.005),
+        Lx=0.04,
+        Ly=0.01,
+        top_thickness_mm=0.0,
+        bottom_thickness_mm=1.0,
+        wobble_amp_um=0.0,
+        wobble_freq_hz=0.0,
+        wobble_pattern="circle",
+        solver="3d",
+        nx=61,
+        ny=41,
+        nz=9,
+        t_end=0.6,
+        dt=0.01,
+        keyhole_taper=0.5,
+        notes=["A thin copper butt joint with no wobble."],
+    ),
+    "2t aluminum lap joint": Preset(
+        name="2t aluminum lap joint",
+        description="Two 1.2 mm aluminum sheets in a 2t lap stack.",
+        material="Aluminum",
+        material_at_temperature=1000.0,
+        power=3500.0,
+        efficiency=0.40,
+        speed=0.04,
+        sigma=120e-6,
+        start=(0.005, 0.005),
+        end=(0.025, 0.005),
+        Lx=0.04,
+        Ly=0.02,
+        top_thickness_mm=1.2,
+        bottom_thickness_mm=1.2,
+        wobble_amp_um=0.0,
+        wobble_freq_hz=0.0,
+        wobble_pattern="circle",
+        solver="3d",
+        nx=61,
+        ny=81,
+        nz=11,
+        t_end=0.5,
+        dt=0.01,
+        keyhole_taper=0.5,
+        notes=[
+            "Aluminum 6061 is reflective and conductive; efficiency should be calibrated.",
+            "1.2 mm + 1.2 mm lap stack.",
+        ],
+    ),
+    "aluminum circle weld": Preset(
+        name="aluminum circle weld",
+        description="Circular seam on a 2 mm aluminum plate.",
+        material="Aluminum",
+        material_at_temperature=1000.0,
+        power=3000.0,
+        efficiency=0.40,
+        speed=0.05,
+        sigma=100e-6,
+        start=(0.0, 0.0),
+        end=(0.0, 0.0),
+        Lx=0.02,
+        Ly=0.02,
+        top_thickness_mm=0.0,
+        bottom_thickness_mm=2.0,
+        wobble_amp_um=0.0,
+        wobble_freq_hz=0.0,
+        wobble_pattern="circle",
+        path_type="circle",
+        center=(0.01, 0.01),
+        radius=0.006,
+        turns=1.0,
+        solver="3d",
+        nx=61,
+        ny=61,
+        nz=9,
+        t_end=1.0,
+        dt=0.01,
+        keyhole_taper=0.5,
+        notes=["A full circular weld on a 2 mm 6061 aluminum plate."],
+    ),
+    "copper spiral weld": Preset(
+        name="copper spiral weld",
+        description="Spiral weld from center out on a 1 mm copper plate.",
+        material="Copper",
+        material_at_temperature=1000.0,
+        power=2500.0,
+        efficiency=0.35,
+        speed=0.04,
+        sigma=100e-6,
+        start=(0.0, 0.0),
+        end=(0.0, 0.0),
+        Lx=0.02,
+        Ly=0.02,
+        top_thickness_mm=0.0,
+        bottom_thickness_mm=1.0,
+        wobble_amp_um=0.0,
+        wobble_freq_hz=0.0,
+        wobble_pattern="circle",
+        path_type="spiral",
+        center=(0.01, 0.01),
+        r_start=0.001,
+        r_end=0.007,
+        turns=1.5,
+        solver="3d",
+        nx=61,
+        ny=61,
+        nz=9,
+        t_end=1.0,
+        dt=0.01,
+        keyhole_taper=0.4,
+        notes=["Archimedean spiral weld on a 1 mm copper plate."],
+    ),
 }

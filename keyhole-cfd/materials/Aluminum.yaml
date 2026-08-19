@@ -1,0 +1,70 @@
+# Aluminum 6061 — Simplified temperature-dependent properties for welding simulation
+# Units: SI unless noted
+# Note: aluminum is reflective at 1 µm and highly conductive; the effective
+# absorption and keyhole behavior are machine-specific and should be calibrated.
+
+alloy:
+  name: "Aluminum 6061"
+  composition:
+    Al: 97.5
+    Mg: 1.0
+    Si: 0.6
+    Cu: 0.3
+  density_solid_ref: 2700.0            # kg/m³ at 293 K
+
+phase_change:
+  solidus_temperature: 853.0           # K
+  liquidus_temperature: 925.0          # K
+  boiling_temperature: 2792.0          # K
+  latent_heat_fusion: 398000.0         # J/kg
+  latent_heat_vaporization: 10900000.0 # J/kg
+  reference_temperature: 293.15
+
+thermal:
+  temperature: [293, 500, 700, 853, 925, 1200, 1600, 2000, 2500]
+  density: [2700, 2650, 2600, 2550, 2450, 2350, 2250, 2150, 2050]              # kg/m³
+  specific_heat: [896, 960, 1000, 1050, 1080, 1150, 1200, 1250, 1300]           # J/kg·K
+  thermal_conductivity: [167, 180, 190, 200, 210, 180, 140, 120, 110]            # W/m·K
+
+surface:
+  temperature: [925, 1200, 1600, 2000, 2500]
+  surface_tension: [0.9, 0.85, 0.80, 0.75, 0.70]                              # N/m
+  marangoni_coefficient: [-0.0002, -0.00025, -0.0003, -0.00035, -0.0004]       # dσ/dT [N/m·K]
+
+thermomechanical:
+  reference_temperature: 293.15
+  temperature: [293, 500, 700, 853]
+  youngs_modulus: [69e9, 60e9, 45e9, 20e9]                                     # Pa
+  yield_stress: [276e6, 220e6, 150e6, 50e6]                                    # Pa
+  thermal_expansion: [23.6e-6, 25.0e-6, 26.5e-6, 28.0e-6]                      # 1/K
+  poisson_ratio: 0.33
+  hardening:
+    type: "isotropic"
+    temperature: [293, 700]
+    H: [300e6, 100e6]                                                          # Pa
+
+haz:
+  grain_coarsening_temperature: 700.0
+  lower_limit_temperature: 420.0
+  base_hardness_hv: 95.0
+  zones:
+    - name: "Fusion zone"
+      t_min: 925.0
+      t_max: 1200.0
+      note: "Melted and resolidified 6061 aluminum."
+    - name: "Coarse-grained HAZ"
+      t_min: 700.0
+      t_max: 925.0
+      note: "Grain coarsening and softening."
+    - name: "Recrystallised HAZ"
+      t_min: 420.0
+      t_max: 700.0
+      note: "Recovery and partial recrystallisation."
+  cooling_response:
+    kind: "martensitic_rate"
+    rate_full_martensite: 1.0e20
+    rate_no_martensite: 1.0e9
+    fast_phase: "Recrystallised aluminum"
+    slow_phase: "Recrystallised aluminum"
+    fast_hardness_hv: 95.0
+    slow_hardness_hv: 95.0

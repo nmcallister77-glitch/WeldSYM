@@ -56,7 +56,7 @@ from weldsim.weld_path import (
 def _show(fig: plt.Figure | go.Figure) -> None:
     """Render a Matplotlib or Plotly figure and close it if it is a pyplot."""
     if isinstance(fig, go.Figure):
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, width="stretch")
     else:
         st.pyplot(fig)
         plt.close(fig)
@@ -841,7 +841,9 @@ def _page_thermal_and_wobble():
             power = st.slider("Power (W)", 100.0, 8000.0, 1500.0, 50.0, key="power")
             efficiency = st.slider("Efficiency", 0.1, 1.0, 0.8, 0.05, key="efficiency")
             speed = st.slider("Travel speed (m/s)", 0.001, 0.05, 0.01, 0.001, key="speed")
-            beam_radius = st.slider("Beam 1/e² radius (µm)", 50.0, 1000.0, 500.0, 25.0, key="beam_radius")
+            beam_radius = st.slider(
+                "Beam 1/e² radius (µm)", 50.0, 1000.0, 500.0, 25.0, key="beam_radius"
+            )
             sigma = beam_radius * 1e-6
 
         st.subheader("Weld path")
@@ -861,7 +863,9 @@ def _page_thermal_and_wobble():
         st.subheader("Wobble")
         c5, c6, c7 = st.columns(3)
         with c5:
-            wobble_amp = st.slider("Wobble amplitude (µm)", 0.0, 1000.0, 400.0, 25.0, key="wobble_amp")
+            wobble_amp = st.slider(
+                "Wobble amplitude (µm)", 0.0, 1000.0, 400.0, 25.0, key="wobble_amp"
+            )
         with c6:
             # Low default so individual loops are resolvable in the path preview;
             # production wobble is typically several hundred Hz.
@@ -887,7 +891,9 @@ def _page_thermal_and_wobble():
             plate_thickness = st.number_input(
                 "Plate thickness (mm)", 0.1, 50.0, 3.0, 0.1, key="plate_thickness_mm"
             )
-            T1 = st.number_input("Heat-spreading depth h (m)", 0.0005, 0.05, 0.003, 0.0005, key="T1")
+            T1 = st.number_input(
+                "Heat-spreading depth h (m)", 0.0005, 0.05, 0.003, 0.0005, key="T1"
+            )
             top_thickness_mm = st.number_input(
                 "Top sheet thickness (mm) — 0 for single plate",
                 0.0,
@@ -923,7 +929,9 @@ def _page_thermal_and_wobble():
             )
             nx = st.slider("Grid points X", 21, 201, 81, 2, key="nx")
             ny = st.slider("Grid points Y", 11, 101, 41, 2, key="ny")
-            nz = st.slider("Grid points through thickness", 5, 61, 13, 2, disabled=solver == "2d", key="nz")
+            nz = st.slider(
+                "Grid points through thickness", 5, 61, 13, 2, disabled=solver == "2d", key="nz"
+            )
             # Long enough for the measured section to cool through 500 C, so t8/5
             # is available. The 3D solve pays for every extra second of simulated
             # time, so it gets the shorter tail.
@@ -936,7 +944,9 @@ def _page_thermal_and_wobble():
                 0.1,
                 key="t_end",
             )
-            dt = st.number_input("Time step (s)", 0.001, 0.5, 0.01, 0.001, disabled=solver == "3d", key="dt")
+            dt = st.number_input(
+                "Time step (s)", 0.001, 0.5, 0.01, 0.001, disabled=solver == "3d", key="dt"
+            )
             if solver == "3d":
                 seconds = _estimate_3d_runtime(
                     nx, ny, nz, Lx, Ly, plate_thickness / 1e3, t_end, material
@@ -951,9 +961,13 @@ def _page_thermal_and_wobble():
         st.caption("Defaults to the mid-point of the weld path, where the torch passes over it.")
         c10, c11 = st.columns(2)
         with c10:
-            px = st.number_input("Probe x (m)", 0.0, Lx, min((x0 + x1) / 2, Lx), 0.001, key="probe_x")
+            px = st.number_input(
+                "Probe x (m)", 0.0, Lx, min((x0 + x1) / 2, Lx), 0.001, key="probe_x"
+            )
         with c11:
-            py = st.number_input("Probe y (m)", 0.0, Ly, min((y0 + y1) / 2, Ly), 0.001, key="probe_y")
+            py = st.number_input(
+                "Probe y (m)", 0.0, Ly, min((y0 + y1) / 2, Ly), 0.001, key="probe_y"
+            )
 
         weld = WeldParams(
             power=power,
@@ -1027,9 +1041,7 @@ def _page_thermal_and_wobble():
         if run_pressed:
             st.session_state["show_3d_animation"] = False
             top_thickness_m = (
-                top_thickness_mm / 1e3
-                if 0.0 < top_thickness_mm < plate_thickness
-                else None
+                top_thickness_mm / 1e3 if 0.0 < top_thickness_mm < plate_thickness else None
             )
             config = ThermalSimulationConfig(
                 nx=nx,
