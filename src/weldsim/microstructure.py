@@ -27,6 +27,10 @@ from .weld_metrics import level_extent
 #: in the HAZ of a ferritic steel weld (typical fabrication-code trigger).
 CRACKING_HARDNESS_HV = 380.0
 
+#: Time above the grain-coarsening temperature beyond which the coarse-grained
+#: HAZ is pronounced enough to warn about (s).
+COARSENING_DWELL_WARNING = 2.0
+
 #: Multiple of the no-martensite cooling time at which transformation is fully
 #: diffusional (ferrite + pearlite, no bainite left).
 DIFFUSIONAL_COMPLETION = 4.0
@@ -60,7 +64,7 @@ class MicrostructureResult:
     t_8_5: float | None  # s
     cooling_rate: float | None  # K/s
     coarse_grain_width: float  # m, per side, above the grain-coarsening limit
-    coarse_grain_dwell: float  # s, time spent above it
+    coarse_grain_dwell: float | None  # s, time above it; None if the solver did not track it
     model: str  # which cooling-response model was used
     warnings: list[str] = field(default_factory=list)
 
@@ -217,13 +221,18 @@ def predict_microstructure(
         )
 
     coarse_limit = material.grain_coarsening_temperature
+    coarse_dwell: float | None = None
     if coarse_limit is None:
         coarse_width = 0.0
-        coarse_dwell = 0.0
     else:
         coarse_width = level_extent(y, section, coarse_limit) / 2.0
-        above = T_peak >= coarse_limit
-        coarse_dwell = float(history.dwell_above[above].max()) if above.any() else 0.0
+        # Dwell is counted per threshold during the run: the melt dwell in
+        # ``history.dwell_above`` is time above the solidus, which is a much
+        # shorter and unrelated interval, so it cannot stand in here.
+        dwell = history.time_above(coarse_limit)
+        if dwell is not None:
+            above = T_peak >= coarse_limit
+            coarse_dwell = float(dwell[above].max()) if above.any() else 0.0
 
     warnings: list[str] = []
     response = material.cooling_response
@@ -259,7 +268,8 @@ def predict_microstructure(
             "strong but with reduced ductility and toughness. A post-weld stress "
             "relief or anneal is usual."
         )
-    if coarse_limit is not None and coarse_width > 0 and coarse_dwell > 2.0:
+    coarsened = coarse_dwell is not None and coarse_dwell > COARSENING_DWELL_WARNING
+    if coarse_limit is not None and coarse_width > 0 and coarsened:
         warnings.append(
             f"{coarse_dwell:.1f} s spent above {coarse_limit - 273.15:.0f} °C: "
             "expect pronounced grain coarsening and reduced HAZ toughness."

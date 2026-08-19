@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional
+import math
+from dataclasses import dataclass, field
+from typing import Optional, Sequence
 
 import numpy as np
 
@@ -98,6 +99,22 @@ class ThermalHistory:
     dwell_temp: float
     """Threshold used for :attr:`dwell_above` (K)."""
 
+    extra_dwell: dict[float, np.ndarray] = field(default_factory=dict)
+    """Time above further thresholds (s), keyed by threshold temperature (K).
+
+    Dwell is threshold-specific and cannot be rescaled after the fact, so a
+    consumer that needs the time above, say, the grain-coarsening temperature
+    has to ask the solver to accumulate it during the run."""
+
+    def time_above(self, threshold: float) -> np.ndarray | None:
+        """Dwell field for ``threshold`` (K), or ``None`` if it was not tracked."""
+        if math.isclose(threshold, self.dwell_temp):
+            return self.dwell_above
+        for tracked, dwell in self.extra_dwell.items():
+            if math.isclose(threshold, tracked):
+                return dwell
+        return None
+
 
 def run_2d_fd_thermal(
     nx: int,
@@ -114,6 +131,7 @@ def run_2d_fd_thermal(
     wobble: Optional[WobbleParams] = None,
     probe: tuple[float, float] | None = None,
     dwell_temp: float | None = None,
+    extra_dwell_temps: Sequence[float] = (),
     phase: Optional[PhaseModel] = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, ThermalHistory]:
     """
@@ -131,6 +149,9 @@ def run_2d_fd_thermal(
         Temperature above which dwell time is accumulated (K), normally the
         solidus so that the melt-pool residence time is available. Defaults to
         ``T85_UPPER``.
+    extra_dwell_temps : sequence of float
+        Further thresholds (K) to accumulate dwell above, reported in
+        ``ThermalHistory.extra_dwell``.
     phase : PhaseModel | None
         Latent heat, evaporation cap and surface losses. Omit for the plain
         constant-property conduction solve.
@@ -193,6 +214,11 @@ def run_2d_fd_thermal(
     t_cross_lo = np.full((nx, ny), np.nan)
     cooling_rate = np.full((nx, ny), np.nan)
     dwell_above = np.zeros((nx, ny))
+    extra_dwell = {
+        float(temp): np.zeros((nx, ny))
+        for temp in extra_dwell_temps
+        if not math.isclose(float(temp), dwell_threshold)
+    }
 
     # Meshgrid for vectorised source term
     X, Y = np.meshgrid(x, y, indexing="ij")
@@ -246,6 +272,8 @@ def run_2d_fd_thermal(
         T_peak[hotter] = T_new[hotter]
         t_peak[hotter] = t_next
         dwell_above[T_new > dwell_threshold] += dt
+        for threshold, dwell in extra_dwell.items():
+            dwell[T_new > threshold] += dt
 
         # Downward crossings of the 800 C / 500 C levels, linearly interpolated
         # within the step so the result does not depend on dt as strongly.
@@ -267,6 +295,7 @@ def run_2d_fd_thermal(
         cooling_rate=cooling_rate,
         dwell_above=dwell_above,
         dwell_temp=dwell_threshold,
+        extra_dwell=extra_dwell,
     )
     return x, y, T, T_probe, history
 

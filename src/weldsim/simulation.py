@@ -47,6 +47,7 @@ class ThermalSimulationConfig:
     solver: str = "2d"  # "2d" thin plate or "3d" through-thickness
     nz: int = 17  # grid points through the thickness, 3D solver only
     dt_3d: float | None = None  # s; None lets the 3D solver pick a stable step
+    keyhole_taper: float | None = None  # tip/surface radius of the capillary, 3D only
 
     @property
     def thickness(self) -> float:
@@ -225,6 +226,7 @@ def run_thermal_simulation(
         wobble=config.wobble,
         probe=config.probe,
         dwell_temp=solidus,
+        extra_dwell_temps=_extra_dwell_temps(config.material),
         phase=phase,
     )
 
@@ -237,6 +239,18 @@ def run_thermal_simulation(
         result["t"] = np.arange(0, config.t_end, config.dt)
         result["T_probe"] = T_probe
     return result
+
+
+def _extra_dwell_temps(material: Material | MaterialParams) -> tuple[float, ...]:
+    """Thresholds the post-processing needs dwell for beyond the melt threshold.
+
+    Grain coarsening depends on the time spent above the coarsening temperature,
+    which is far below the solidus, so it has to be counted separately during
+    the run.
+    """
+    if isinstance(material, Material) and material.grain_coarsening_temperature is not None:
+        return (float(material.grain_coarsening_temperature),)
+    return ()
 
 
 def _run_3d(
@@ -270,6 +284,8 @@ def _run_3d(
         path=config.path,
         wobble=config.wobble,
         phase=phase,
+        keyhole_taper=config.keyhole_taper,
+        extra_dwell_temps=_extra_dwell_temps(material),
         on_progress=on_progress,
     )
 

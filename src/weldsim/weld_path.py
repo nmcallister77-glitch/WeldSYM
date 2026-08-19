@@ -161,11 +161,13 @@ def heat_signature(
     y: np.ndarray,
     t_end: float,
     dt: float = 0.002,
+    t_start: float = 0.0,
 ) -> np.ndarray:
     """Accumulated heat input per unit volume [J/m³] over the path.
 
-    This is the time-integral of the surface Gaussian spread over thickness h.
-    Useful for visualising the beam track before running the full thermal sim.
+    This is the time-integral of the surface Gaussian spread over thickness h,
+    from ``t_start`` to ``t_end``. Useful for visualising the beam track before
+    running the full thermal sim.
     """
     X, Y = np.meshgrid(x, y, indexing="ij")
     Q = np.zeros_like(X)
@@ -173,7 +175,7 @@ def heat_signature(
     denom = 2.0 * math.pi * sigma**2
     two_sigma2 = 2.0 * sigma**2
 
-    t = 0.0
+    t = t_start
     while t < t_end:
         x_src, y_src = beam_at_time(path, wobble, t)
         r2 = (X - x_src) ** 2 + (Y - y_src) ** 2
@@ -189,9 +191,10 @@ def beam_trajectory(
     wobble: WobbleParams,
     t_end: float,
     dt: float = 0.002,
+    t_start: float = 0.0,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Return (x_traj, y_traj) arrays for the wobbled beam centre."""
-    ts = np.arange(0.0, t_end, dt)
+    ts = np.arange(t_start, t_end, dt)
     x_traj = np.zeros_like(ts)
     y_traj = np.zeros_like(ts)
     for i, t in enumerate(ts):

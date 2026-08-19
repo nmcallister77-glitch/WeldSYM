@@ -29,8 +29,9 @@ the VOF free surface — the trade is that it needs a Linux/WSL2 install.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 
@@ -113,6 +114,7 @@ class Solution3D:
     cooling_rate: np.ndarray  # K/s at 800 °C (NaN where never crossed)
     dwell_above: np.ndarray  # s above dwell_temp
     dwell_temp: float  # K
+    extra_dwell: dict[float, np.ndarray]  # threshold (K) -> s above it
     dt: float  # s, time step actually used
     steps: int
     keyhole_fraction: float  # share of absorbed power put down the capillary
@@ -172,6 +174,7 @@ class Solution3D:
             cooling_rate=self.cooling_rate[:, :, 0],
             dwell_above=self.dwell_above.max(axis=2),
             dwell_temp=self.dwell_temp,
+            extra_dwell={t: d.max(axis=2) for t, d in self.extra_dwell.items()},
         )
 
 
@@ -266,7 +269,9 @@ def run_3d_thermal(
     wobble: Optional[WobbleParams] = None,
     phase: Optional[PhaseModel] = None,
     keyhole_depth: float | None = None,
+    keyhole_taper: float | None = None,
     dwell_temp: float | None = None,
+    extra_dwell_temps: Sequence[float] = (),
     solidus: float | None = None,
     haz_limit: float | None = None,
     emissivity: float = 0.7,
@@ -283,10 +288,20 @@ def run_3d_thermal(
         Plate thickness (m); the grid spans the full thickness.
     dt : float | None
         Time step (s). Omit to use a stable step derived from the grid.
+    extra_dwell_temps : sequence of float
+        Further thresholds (K) to accumulate dwell above, reported in
+        ``Solution3D.extra_dwell``: dwell is threshold-specific, so a consumer
+        that needs the time above the grain-coarsening temperature has to have
+        it counted during the run.
     keyhole_depth : float | None
         Depth of the assumed capillary (m). Omit to use the plate thickness in
         keyhole mode, which lets the solve itself decide how deep the fusion
         zone actually gets.
+    keyhole_taper : float | None
+        Radius of the capillary at its tip as a fraction of the radius at the
+        surface, in ``(0, 1]``. This is the main shape knob when calibrating
+        predicted penetration against measured macro-sections; omit for
+        ``KEYHOLE_TIP_TAPER``.
     on_progress : callable | None
         Called with a 0..1 fraction roughly 100 times during the run, for GUI
         progress bars.
@@ -348,6 +363,11 @@ def run_3d_thermal(
     t_cross_lo = np.full((nx, ny, nz), np.nan)
     cooling_rate = np.full((nx, ny, nz), np.nan)
     dwell_above = np.zeros((nx, ny, nz))
+    extra_dwell = {
+        float(temp): np.zeros((nx, ny, nz))
+        for temp in extra_dwell_temps
+        if not math.isclose(float(temp), dwell_threshold)
+    }
 
     # Only the neighbourhood of the beam gets a source term, which keeps the
     # per-step cost proportional to the pool rather than to the plate.
@@ -361,8 +381,14 @@ def run_3d_thermal(
 
     # Depth profile of the capillary source: the channel radius tapers with
     # depth, and the energy per unit depth is uniform along it.
+    tip_taper = KEYHOLE_TIP_TAPER if keyhole_taper is None else float(keyhole_taper)
+    if not 0.0 < tip_taper <= 1.0:
+        raise ValidationError(
+            f"Keyhole tip taper must be in (0, 1], got {tip_taper}: 1 is a straight "
+            "channel and smaller values pinch the tip."
+        )
     if keyhole_share > 0 and keyhole_depth > 0:
-        taper = 1.0 - (1.0 - KEYHOLE_TIP_TAPER) * np.clip(z / keyhole_depth, 0.0, 1.0)
+        taper = 1.0 - (1.0 - tip_taper) * np.clip(z / keyhole_depth, 0.0, 1.0)
         radius_z = KEYHOLE_RADIUS_FACTOR * weld.sigma * taper
         in_channel = z <= keyhole_depth
     else:
@@ -486,6 +512,9 @@ def run_3d_thermal(
         np.maximum(T_peak, T_new, out=T_peak)
         np.greater(T_new, dwell_threshold, out=mask)
         np.add(dwell_above, dt, out=dwell_above, where=mask)
+        for threshold, dwell in extra_dwell.items():
+            np.greater(T_new, threshold, out=mask)
+            np.add(dwell, dt, out=dwell, where=mask)
         # Nothing can cross 800/500 C while the whole plate is below 500 C, which
         # is most of the run for a fast pass on a big plate.
         if T.max() >= T85_LOWER:
@@ -526,6 +555,7 @@ def run_3d_thermal(
         cooling_rate=cooling_rate,
         dwell_above=dwell_above,
         dwell_temp=dwell_threshold,
+        extra_dwell=extra_dwell,
         dt=dt,
         steps=n_steps,
         keyhole_fraction=k_fraction,

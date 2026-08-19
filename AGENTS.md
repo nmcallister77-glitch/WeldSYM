@@ -57,7 +57,11 @@ that would take minutes, and the GUI shows an estimated run time before you pres
 - `pyproject.toml` — package metadata, `gui`/`cfd`/`cad`/`dev` extras.
 - `run_gui.py` — launches `streamlit run app/gui.py`.
 - `app/gui.py` — Streamlit dashboard: Weld simulation page (Setup / Wobble signature /
-  Weld result / Thermal field), optional OpenFOAM export page, Docs page.
+  Weld result / Thermal field), Measured vs predicted page, optional OpenFOAM export page,
+  Docs page.
+- `src/weldsim/calibration.py` — measured macro-sections in, residuals out, plus a grid
+  search that fits absorption efficiency and keyhole taper to them. The fit is empirical
+  and only valid over the process window the coupons covered.
 - `src/weldsim/cli.py` — CLI, `--solver 2d|3d`, `--nz`, `--dt-3d`, `--report`.
 - `keyhole-cfd/` — optional OpenFOAM case, prep scripts and `laserKeyholeVoF` solver source.
 
