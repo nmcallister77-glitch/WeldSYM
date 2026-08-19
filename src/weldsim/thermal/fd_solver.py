@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
@@ -9,6 +10,93 @@ import numpy as np
 from ..errors import StabilityError, ValidationError
 from ..types import WeldParams, MaterialParams
 from ..weld_path import WeldPath, WobbleParams
+
+#: Cooling-rate interval used for weldability assessment: 800 C down to 500 C.
+T85_UPPER = 1073.15
+T85_LOWER = 773.15
+
+#: Stefan-Boltzmann constant (W/m^2 K^4).
+SIGMA_SB = 5.670374419e-8
+
+
+@dataclass
+class PhaseModel:
+    """Phase-change and surface-loss physics for the thin-plate solve.
+
+    Pure conduction with constant properties has no way to stop: a concentrated
+    beam drives the peak temperature far past anything metallurgically possible,
+    which is why an unmodified run reports melt pools several times too wide.
+    Three effects hold a real weld pool in check and are represented here:
+
+    latent heat of fusion
+        Absorbed as the material passes through the mushy range, modelled as an
+        apparent heat capacity over ``solidus``..``liquidus``.
+    evaporation
+        Above the boiling point the surface vaporises and the plume carries the
+        excess energy away, so temperature is capped there.
+    surface losses
+        Convection and radiation from both faces of the plate.
+
+    Set ``latent_heat``, ``boiling`` or the loss coefficients to zero/None to
+    disable the corresponding term.
+    """
+
+    solidus: float
+    liquidus: float
+    latent_heat: float = 0.0  # J/kg
+    boiling: float | None = None  # K; temperature is capped here
+    emissivity: float = 0.7
+    convection_coefficient: float = 15.0  # W/m^2 K, per exposed face
+
+    def apparent_capacity(self, T: np.ndarray, cp: float) -> np.ndarray:
+        """Specific heat with the latent heat of fusion smeared over the mushy range."""
+        if self.latent_heat <= 0 or self.liquidus <= self.solidus:
+            return np.full_like(T, cp)
+        mushy = (T >= self.solidus) & (T <= self.liquidus)
+        cp_field = np.full_like(T, cp)
+        cp_field[mushy] += self.latent_heat / (self.liquidus - self.solidus)
+        return cp_field
+
+    def surface_loss(self, T: np.ndarray, T0: float, thickness: float) -> np.ndarray:
+        """Volumetric heat sink from both plate faces (W/m^3)."""
+        if thickness <= 0:
+            return np.zeros_like(T)
+        flux = self.convection_coefficient * (T - T0)
+        if self.emissivity > 0:
+            flux = flux + self.emissivity * SIGMA_SB * (T**4 - T0**4)
+        return 2.0 * flux / thickness
+
+
+@dataclass
+class ThermalHistory:
+    """Per-cell thermal-cycle quantities accumulated during the transient run.
+
+    Every field has the shape of the temperature grid, ``(nx, ny)``. These are
+    what the weld-quality metrics are derived from: the final temperature field
+    alone says nothing about the weld, because the fusion zone and the heat
+    affected zone are defined by the *peak* temperature each point reached and
+    by how fast it cooled afterwards.
+    """
+
+    T_peak: np.ndarray
+    """Highest temperature reached at each cell (K)."""
+
+    t_peak: np.ndarray
+    """Time at which the peak occurred (s)."""
+
+    t_8_5: np.ndarray
+    """Time to cool from ``T85_UPPER`` to ``T85_LOWER`` (s); NaN where the cell
+    never completed that interval."""
+
+    cooling_rate: np.ndarray
+    """Instantaneous cooling rate while passing ``T85_UPPER`` (K/s, positive);
+    NaN where the cell never cooled through it."""
+
+    dwell_above: np.ndarray
+    """Time spent above the ``dwell_temp`` threshold (s)."""
+
+    dwell_temp: float
+    """Threshold used for :attr:`dwell_above` (K)."""
 
 
 def run_2d_fd_thermal(
@@ -25,7 +113,9 @@ def run_2d_fd_thermal(
     path: Optional[WeldPath] = None,
     wobble: Optional[WobbleParams] = None,
     probe: tuple[float, float] | None = None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
+    dwell_temp: float | None = None,
+    phase: Optional[PhaseModel] = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, ThermalHistory]:
     """
     Run a 2D transient heat conduction simulation on a regular grid.
 
@@ -37,6 +127,13 @@ def run_2d_fd_thermal(
         Optional weld path. If given, overrides weld.direction-based motion.
     wobble : WobbleParams | None
         Optional laser wobble. Requires ``path``.
+    dwell_temp : float | None
+        Temperature above which dwell time is accumulated (K), normally the
+        solidus so that the melt-pool residence time is available. Defaults to
+        ``T85_UPPER``.
+    phase : PhaseModel | None
+        Latent heat, evaporation cap and surface losses. Omit for the plain
+        constant-property conduction solve.
 
     Returns
     -------
@@ -48,6 +145,8 @@ def run_2d_fd_thermal(
         Temperature field at final time, shape (nx, ny).
     T_probe : np.ndarray | None
         Time-temperature history at ``probe`` (s, K) if requested.
+    history : ThermalHistory
+        Peak temperature, cooling rate and dwell fields over the whole grid.
     """
     # Grid
     dx = Lx / (nx - 1)
@@ -86,6 +185,15 @@ def run_2d_fd_thermal(
         iy = min(max(int(round(py / dy)), 0), ny - 1)
         T_probe = np.zeros(n_steps)
 
+    # Thermal-cycle bookkeeping, used by the weld-quality metrics
+    dwell_threshold = T85_UPPER if dwell_temp is None else dwell_temp
+    T_peak = np.full((nx, ny), T0)
+    t_peak = np.zeros((nx, ny))
+    t_cross_hi = np.full((nx, ny), np.nan)
+    t_cross_lo = np.full((nx, ny), np.nan)
+    cooling_rate = np.full((nx, ny), np.nan)
+    dwell_above = np.zeros((nx, ny))
+
     # Meshgrid for vectorised source term
     X, Y = np.meshgrid(x, y, indexing="ij")
     q_eff = weld.power * weld.efficiency
@@ -111,7 +219,18 @@ def run_2d_fd_thermal(
         lap = (T[2:, 1:-1] - 2.0 * T[1:-1, 1:-1] + T[:-2, 1:-1]) / (dx**2) + (
             T[1:-1, 2:] - 2.0 * T[1:-1, 1:-1] + T[1:-1, :-2]
         ) / (dy**2)
-        T_new[1:-1, 1:-1] = T[1:-1, 1:-1] + alpha * dt * lap + (dt / (rho * cp)) * Q[1:-1, 1:-1]
+        source = Q[1:-1, 1:-1]
+        if phase is None:
+            rho_cp = rho * cp
+        else:
+            rho_cp = rho * phase.apparent_capacity(T[1:-1, 1:-1], cp)
+            source = source - phase.surface_loss(T[1:-1, 1:-1], T0, h_eff)
+        T_new[1:-1, 1:-1] = T[1:-1, 1:-1] + (dt / rho_cp) * (k * lap + source)
+
+        if phase is not None and phase.boiling is not None:
+            # Energy driving the surface past boiling leaves with the vapour
+            # plume instead of heating the plate further.
+            np.minimum(T_new, phase.boiling, out=T_new)
 
         # Boundary conditions: T = T0
         T_new[0, :] = T0
@@ -122,9 +241,34 @@ def run_2d_fd_thermal(
         if T_probe is not None:
             T_probe[step] = T_new[ix, iy]
 
+        t_next = t + dt
+        hotter = T_new > T_peak
+        T_peak[hotter] = T_new[hotter]
+        t_peak[hotter] = t_next
+        dwell_above[T_new > dwell_threshold] += dt
+
+        # Downward crossings of the 800 C / 500 C levels, linearly interpolated
+        # within the step so the result does not depend on dt as strongly.
+        for level, crossings in ((T85_UPPER, t_cross_hi), (T85_LOWER, t_cross_lo)):
+            crossed = (T >= level) & (T_new < level) & np.isnan(crossings)
+            if crossed.any():
+                span = T[crossed] - T_new[crossed]
+                frac = (T[crossed] - level) / np.where(span > 0, span, 1.0)
+                crossings[crossed] = t + frac * dt
+                if level == T85_UPPER:
+                    cooling_rate[crossed] = span / dt
+
         T, T_new = T_new, T  # swap
 
-    return x, y, T, T_probe
+    history = ThermalHistory(
+        T_peak=T_peak,
+        t_peak=t_peak,
+        t_8_5=t_cross_lo - t_cross_hi,
+        cooling_rate=cooling_rate,
+        dwell_above=dwell_above,
+        dwell_temp=dwell_threshold,
+    )
+    return x, y, T, T_probe, history
 
 
 def weld_position_at_time(weld: WeldParams, t: float) -> tuple[float, float]:

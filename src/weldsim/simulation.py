@@ -4,19 +4,25 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Any, Callable, Dict
 
 import numpy as np
 
 from .errors import ValidationError
-from .materials import Material, list_materials, load_material
-from .thermal.fd_solver import run_2d_fd_thermal
+from .materials import Material, list_materials, load_material, material_from_params
+from .thermal.fd_solver import PhaseModel, ThermalHistory, run_2d_fd_thermal
+from .thermal.solver3d import Solution3D, run_3d_thermal
 from .types import MaterialParams, WeldParams
 from .weld_path import WeldPath, WobbleParams
 
 #: Bounds on problem size, so a mistyped parameter cannot exhaust memory or run for hours.
 MAX_CELLS = 1_000_000
 MAX_STEPS = 1_000_000
+
+#: Solvers the high-level API can dispatch to. The 2D thin-plate solve is fast
+#: enough for parameter sweeps; the 3D solve resolves depth, so it is the one
+#: that can report penetration and a transverse cross-section.
+SOLVERS = ("2d", "3d")
 
 
 @dataclass
@@ -36,6 +42,21 @@ class ThermalSimulationConfig:
     path: WeldPath | None = None
     wobble: WobbleParams | None = None
     probe: tuple[float, float] | None = None
+    plate_thickness: float | None = None  # m; defaults to T1
+    phase_change: bool = True  # latent heat, evaporation cap and surface losses
+    solver: str = "2d"  # "2d" thin plate or "3d" through-thickness
+    nz: int = 17  # grid points through the thickness, 3D solver only
+    dt_3d: float | None = None  # s; None lets the 3D solver pick a stable step
+
+    @property
+    def thickness(self) -> float:
+        """Plate thickness used for the mechanical models (m).
+
+        ``T1`` is the depth the surface flux is spread over for the thermal
+        solve, which is not necessarily the plate thickness once the beam only
+        partially penetrates.
+        """
+        return self.T1 if self.plate_thickness is None else self.plate_thickness
 
 
 def _to_material_params(material: MaterialParams | Material) -> MaterialParams:
@@ -47,6 +68,24 @@ def _to_material_params(material: MaterialParams | Material) -> MaterialParams:
             T0=material.T0,
         )
     return material
+
+
+def _phase_model(config: ThermalSimulationConfig) -> PhaseModel | None:
+    """Phase-change physics for the run, when the alloy data is available.
+
+    Only a :class:`~weldsim.materials.Material` carries melting and boiling
+    data; with bare :class:`~weldsim.types.MaterialParams` the solve stays pure
+    conduction, which will overshoot for a concentrated beam.
+    """
+    material = config.material
+    if not config.phase_change or not isinstance(material, Material):
+        return None
+    return PhaseModel(
+        solidus=material.solidus,
+        liquidus=material.liquidus,
+        latent_heat=material.latent_heat_fusion,
+        boiling=material.boiling,
+    )
 
 
 def validate_config(config: ThermalSimulationConfig) -> None:
@@ -68,16 +107,28 @@ def validate_config(config: ThermalSimulationConfig) -> None:
         if not value > 0:
             raise ValidationError(f"{name} must be greater than 0, got {value}.")
 
-    for name, count in (("nx", config.nx), ("ny", config.ny)):
+    if config.solver not in SOLVERS:
+        raise ValidationError(
+            f"Unknown solver {config.solver!r}; choose one of {', '.join(SOLVERS)}."
+        )
+
+    counts = [("nx", config.nx), ("ny", config.ny)]
+    if config.solver == "3d":
+        counts.append(("nz", config.nz))
+    for name, count in counts:
         if count < 3:
             raise ValidationError(
                 f"{name} must be at least 3 to have an interior node, got {count}."
             )
 
     cells = config.nx * config.ny
+    shape = f"{config.nx}x{config.ny}"
+    if config.solver == "3d":
+        cells *= config.nz
+        shape += f"x{config.nz}"
     if cells > MAX_CELLS:
         raise ValidationError(
-            f"Grid of {config.nx}x{config.ny} = {cells} cells exceeds the limit of "
+            f"Grid of {shape} = {cells} cells exceeds the limit of "
             f"{MAX_CELLS}. Coarsen the mesh or shrink the domain."
         )
 
@@ -114,18 +165,31 @@ def validate_config(config: ThermalSimulationConfig) -> None:
         raise ValidationError(f"Beam sigma must be greater than 0 m, got {weld.sigma}.")
 
 
-def run_thermal_simulation(config: ThermalSimulationConfig) -> Dict[str, np.ndarray]:
+def run_thermal_simulation(
+    config: ThermalSimulationConfig,
+    on_progress: Callable[[float], None] | None = None,
+) -> Dict[str, Any]:
     """
-    Run a 2D transient thermal simulation with a moving heat source.
+    Run a transient thermal simulation with a moving heat source.
+
+    ``config.solver`` selects the thin-plate 2D solve or the through-thickness
+    3D solve; both return the same keys, so everything downstream — weld
+    metrics, microstructure, distortion, the report — works either way.
+
+    Parameters
+    ----------
+    on_progress : callable | None
+        Progress callback taking a 0..1 fraction. Only the 3D solver reports
+        progress; the 2D solve is fast enough not to need it.
 
     Returns
     -------
     result : dict
-        {
-          "x": np.ndarray,
-          "y": np.ndarray,
-          "T": np.ndarray,
-        }
+        ``x``, ``y`` and the final surface temperature field ``T``, the optional
+        probe history (``t``, ``T_probe``), and ``history`` — the
+        :class:`~weldsim.thermal.fd_solver.ThermalHistory` holding the peak
+        temperature and cooling-rate fields the weld metrics are built from. A
+        3D run adds ``z`` and ``solution3d``, which carry the depth information.
     """
     if config.weld is None:
         config.weld = WeldParams(
@@ -140,7 +204,13 @@ def run_thermal_simulation(config: ThermalSimulationConfig) -> Dict[str, np.ndar
 
     mat = _to_material_params(config.material)
 
-    x, y, T, T_probe = run_2d_fd_thermal(
+    solidus = config.material.solidus if isinstance(config.material, Material) else None
+    phase = _phase_model(config)
+
+    if config.solver == "3d":
+        return _run_3d(config, phase, on_progress)
+
+    x, y, T, T_probe, history = run_2d_fd_thermal(
         nx=config.nx,
         ny=config.ny,
         Lx=config.Lx,
@@ -154,17 +224,68 @@ def run_thermal_simulation(config: ThermalSimulationConfig) -> Dict[str, np.ndar
         path=config.path,
         wobble=config.wobble,
         probe=config.probe,
+        dwell_temp=solidus,
+        phase=phase,
     )
 
     if config.output_file is not None:
         os.makedirs(os.path.dirname(config.output_file) or ".", exist_ok=True)
         save_temperature_csv(config.output_file, x, y, T)
 
-    result = {"x": x, "y": y, "T": T}
+    result: Dict[str, Any] = {"x": x, "y": y, "T": T, "history": history}
     if T_probe is not None:
         result["t"] = np.arange(0, config.t_end, config.dt)
         result["T_probe"] = T_probe
     return result
+
+
+def _run_3d(
+    config: ThermalSimulationConfig,
+    phase: PhaseModel | None,
+    on_progress: Callable[[float], None] | None,
+) -> Dict[str, Any]:
+    """Run the through-thickness solver and shape its output like the 2D one.
+
+    The plan-view fields come from :meth:`Solution3D.to_history`, so the weld
+    metrics, microstructure and distortion models are shared between solvers;
+    ``solution3d`` carries the depth information they cannot express.
+    """
+    material = config.material
+    if not isinstance(material, Material):
+        material = material_from_params(material)
+    assert config.weld is not None
+
+    solution = run_3d_thermal(
+        nx=config.nx,
+        ny=config.ny,
+        nz=config.nz,
+        Lx=config.Lx,
+        Ly=config.Ly,
+        thickness=config.thickness,
+        t_end=config.t_end,
+        weld=config.weld,
+        material=material,
+        dt=config.dt_3d,
+        T0=material.T0,
+        path=config.path,
+        wobble=config.wobble,
+        phase=phase,
+        on_progress=on_progress,
+    )
+
+    surface = solution.T[:, :, 0]
+    if config.output_file is not None:
+        os.makedirs(os.path.dirname(config.output_file) or ".", exist_ok=True)
+        save_temperature_csv(config.output_file, solution.x, solution.y, surface)
+
+    return {
+        "x": solution.x,
+        "y": solution.y,
+        "z": solution.z,
+        "T": surface,
+        "history": solution.to_history(),
+        "solution3d": solution,
+    }
 
 
 def save_temperature_csv(path: str, x: np.ndarray, y: np.ndarray, T: np.ndarray):
@@ -178,6 +299,8 @@ def save_temperature_csv(path: str, x: np.ndarray, y: np.ndarray, T: np.ndarray)
 
 
 __all__ = [
+    "Solution3D",
+    "ThermalHistory",
     "ThermalSimulationConfig",
     "run_thermal_simulation",
     "validate_config",

@@ -1,0 +1,12 @@
+# Keep the app self-contained: no usage telemetry, no update checks, so it runs
+# on an air-gapped machine without waiting on network timeouts.
+[browser]
+gatherUsageStats = false
+
+[global]
+showWarningOnDirectExecution = false
+
+[server]
+headless = true
+address = "localhost"
+port = 8501

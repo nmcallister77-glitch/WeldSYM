@@ -1,68 +1,76 @@
 # WeldSYM — Agent notes
 
-## Repo location
+## What this app is
 
-- Git remote: `https://github.com/nmcallister77-glitch/WeldSYM.git`
-- `<REPO>` below means the repo root on the current machine. Nick's Windows checkout lives under
-  `C:\Users\nmcal\welding-sim\welding-sim` (the outer `welding-sim` is a wrapper directory; the
-  project is the nested one), but nothing in the code depends on that path.
+A welding engineer enters process, material, geometry and wobble parameters and gets the
+weld back: fusion zone and HAZ geometry, penetration and welding mode, t8/5 and cooling
+rate, HAZ phase fractions and hardness, distortion and residual stress, and the wobble
+heat-concentration map.
 
-## Quick start (2D, any OS)
+Both solvers live in the Python package and run offline with no external solver:
 
-```powershell
-cd <REPO>
-pip install -e ".[gui]"
-python run_gui.py
-```
+- `src/weldsim/thermal/fd_solver.py` — 2D thin-plate solve, for fast screening.
+- `src/weldsim/thermal/solver3d.py` — 3D through-thickness solve. Penetration, root width,
+  fusion area and HAZ depth are measured on the computed fusion boundary, and the weld
+  cross-section is real output rather than an inferred shape.
 
-Then open http://localhost:8501.
+`src/weldsim/simulation.py` dispatches on `ThermalSimulationConfig.solver` (`"2d"`/`"3d"`)
+and returns the same keys either way, plus `solution3d` for a 3D run. Everything
+downstream (`weld_metrics`, `keyhole`, `microstructure`, `distortion`, `wobble_analysis`,
+`report`) consumes the projected `ThermalHistory`, so both solvers share the post-processing.
 
-## WSL2 / 3D keyhole CFD
+OpenFOAM is **optional** and not part of the normal workflow: it is an export for anyone
+who wants resolved free-surface CFD (vapour recoil, melt flow, a true keyhole cavity).
+It has never been compiled or run in this environment, so do not claim it as verified.
 
-The 3D OpenFOAM solver is Linux-only. Required pieces:
-
-- WSL2 + Ubuntu distro (the GUI's WSL runner panel lists the distros it detects).
-- OpenFOAM (e.g. `openfoam11`) sourced via `/opt/openfoam11/etc/bashrc`.
-- The custom solver built from `keyhole-cfd/solver/laserKeyholeVoF` (`wmake` from inside WSL).
-
-A Windows checkout appears inside WSL as `/mnt/<drive>/...`; the GUI's WSL runner panel derives and
-displays this path itself.
-
-Run sequence once the solver is built:
+## Quick start
 
 ```bash
-cd <REPO-IN-WSL>/keyhole-cfd
-source /opt/openfoam11/etc/bashrc
-python3 scripts/configure_case.py
-python3 scripts/generate_workpiece_stl.py
-
-cd openfoam
-blockMesh
-laserKeyholeVoF
+pip install -e ".[gui]"
+python run_gui.py          # http://localhost:8501
+python -m weldsim.cli --solver 3d --nz 13 --report weld.json
 ```
 
-The Streamlit app has a WSL runner panel in `app/gui.py` that runs `blockMesh` and `laserKeyholeVoF`
-from the GUI via `wsl -e bash -c ...`. On machines without `wsl` it reports a clear in-page error
-rather than raising.
+Offline install: `pip wheel -w wheelhouse ".[gui]"` on a connected machine, then
+`pip install --no-index --find-links wheelhouse -e ".[gui]"`. Streamlit telemetry is off in
+`.streamlit/config.toml`. The runtime makes no network calls; core dependencies are NumPy
+and PyYAML, with Matplotlib/Streamlit in the `gui` extra and PyVista/Gmsh in `cfd`.
 
-## Validation and errors
+## Checks before pushing
 
-All simulation inputs are checked by `validate_config()` in `src/weldsim/simulation.py`, which raises
-`ValidationError`; the CFL check in `thermal/fd_solver.py` raises `StabilityError`. Both derive from
-`WeldSimError` (and `ValueError`) in `src/weldsim/errors.py`. The CLI turns them into a single-line
-stderr message with exit code 2; the GUI shows them via `st.error`. Put new input checks in
-`validate_config` so both front ends pick them up.
+```bash
+.venv/bin/pytest -q
+.venv/bin/black --check src tests app
+.venv/bin/flake8 --max-line-length=100 src tests app
+```
+
+## Performance notes for the 3D solver
+
+The explicit step is memory-bound, so the loop works on preallocated buffers. Cost is
+`nx*ny*nz*steps`, and the stable step scales with the *smallest* spacing — usually `dz` —
+so raising `nz` is expensive twice over. `MAX_CELL_UPDATES` in `solver3d.py` rejects runs
+that would take minutes, and the GUI shows an estimated run time before you press run.
 
 ## Key files
 
-- `README.md` — Windows vs. WSL2 setup and run instructions.
-- `pyproject.toml` — package metadata, dependencies, optional `gui` extras.
-- `run_gui.py` — `streamlit run app/gui.py` wrapper.
-- `app/gui.py` — Streamlit dashboard with 2D thermal + wobble + 3D keyhole CFD tabs.
-- `src/weldsim/cli.py` — command-line 2D thermal entry point.
-- `src/weldsim/errors.py` — exception hierarchy shared by the CLI and GUI.
-- `tests/` — `pytest -q` covers input validation, stability guard and CLI exit codes.
-- `keyhole-cfd/config/simulation_master.yaml` — master config for the OpenFOAM case.
-- `keyhole-cfd/scripts/{configure_case.py,generate_workpiece_stl.py}` — case prep scripts.
-- `keyhole-cfd/solver/laserKeyholeVoF/` — custom OpenFOAM VOF solver source.
-- `keyhole-cfd/openfoam/` — OpenFOAM case files (`blockMeshDict`, `controlDict`, etc.).
+- `README.md` — install, solver choice, offline notes, optional OpenFOAM route.
+- `pyproject.toml` — package metadata, `gui`/`cfd`/`cad`/`dev` extras.
+- `run_gui.py` — launches `streamlit run app/gui.py`.
+- `app/gui.py` — Streamlit dashboard: Weld simulation page (Setup / Wobble signature /
+  Weld result / Thermal field), optional OpenFOAM export page, Docs page.
+- `src/weldsim/cli.py` — CLI, `--solver 2d|3d`, `--nz`, `--dt-3d`, `--report`.
+- `keyhole-cfd/` — optional OpenFOAM case, prep scripts and `laserKeyholeVoF` solver source.
+
+## OpenFOAM route (optional, Linux/WSL2 only)
+
+```bash
+cd <repo>/keyhole-cfd
+source /opt/openfoam11/etc/bashrc
+python3 scripts/configure_case.py
+python3 scripts/generate_workpiece_stl.py
+cd openfoam && blockMesh && laserKeyholeVoF
+```
+
+The custom solver must be built with `wmake` from `keyhole-cfd/solver/laserKeyholeVoF`.
+The GUI's WSL runner panel invokes `blockMesh`/`laserKeyholeVoF` through `wsl -e bash -c`
+and degrades gracefully when WSL or OpenFOAM is absent.
