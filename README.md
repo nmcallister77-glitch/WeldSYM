@@ -81,6 +81,22 @@ OpenFOAM export below, and for qualification-grade distortion a thermo-mechanica
 The same report is available from the CLI with `--report weld.json`, and downloadable as
 JSON from the GUI.
 
+### Comparing against real coupons, and calibrating to them
+
+The **Measured vs predicted** page closes the loop with the workshop. Weld a bracket of
+coupons at a fixed focus, varying power and travel speed, cut, polish and etch them, then
+enter the measured penetration and top-surface fusion width for each one. The page solves
+the same parameters and reports per-coupon residuals, a parity plot, and the RMS error and
+systematic bias.
+
+Expect the first comparison to disagree on absolute penetration, because two things about
+your machine and joint cannot be known in advance: how much beam power is actually
+absorbed, and how the capillary narrows with depth. "Fit absorption and keyhole taper"
+searches those two parameters for the pair that best reproduces your macro-sections, and
+the fit downloads as YAML. It is an empirical calibration, valid for the material,
+thickness and process window the coupons covered — not a general physical constant, and no
+substitute for procedure qualification.
+
 ## 2. Optional: OpenFOAM export (requires Linux/WSL2 + OpenFOAM)
 
 Nothing here is needed for the results above. It exports the same job as an OpenFOAM VOF case for resolved free-surface CFD. OpenFOAM is a separate native package that has to be installed and compiled outside this app; it has not been built or run in this repo's CI.

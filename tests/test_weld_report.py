@@ -15,7 +15,12 @@ from weldsim.thermal.fd_solver import T85_LOWER, T85_UPPER, ThermalHistory
 from weldsim.types import WeldParams
 from weldsim.weld_metrics import compute_weld_metrics, level_extent
 from weldsim.weld_path import WeldPath, WobbleParams
-from weldsim.wobble_analysis import analyse_wobble
+from weldsim.wobble_analysis import (
+    MAX_SAMPLES,
+    SAMPLES_PER_PERIOD,
+    analyse_wobble,
+    sampling_window,
+)
 
 
 @pytest.fixture(scope="module")
@@ -288,6 +293,97 @@ def test_wobble_analysis_quantifies_spreading(steel_run):
     assert wobbled.peak_reduction > 0
     assert wobbled.peak_beam_speed > plain.peak_beam_speed
     assert wobbled.pitch == pytest.approx(config.path.speed / 100.0)
+
+
+def test_high_frequency_wobble_is_not_aliased(steel_run):
+    """A 500 Hz wobble must not read like a straight beam.
+
+    Sampling every 2 ms lands on the same phase of a 500 Hz oscillation every
+    time, so the beam appears to run in a straight line and the spreading
+    disappears from the metrics.
+    """
+    config, result = steel_run
+    x, y = result["x"], result["y"]
+    wobble = WobbleParams(amplitude=0.0015, frequency=500.0, pattern="circle")
+    fast = analyse_wobble(config.path, wobble, config.weld, config.T1, x, y, dt=0.002)
+    slow = analyse_wobble(
+        config.path,
+        WobbleParams(amplitude=0.0015, frequency=100.0, pattern="circle"),
+        config.weld,
+        config.T1,
+        x,
+        y,
+        dt=0.002,
+    )
+    assert fast.peak_reduction > 0.2
+    # Both frequencies sweep the same width, so they spread the heat similarly;
+    # an aliased 500 Hz map collapses onto the straight-beam peak instead.
+    assert fast.peak_reduction == pytest.approx(slow.peak_reduction, abs=0.15)
+
+
+def test_energy_map_sampling_resolves_the_oscillation():
+    duration = 3.0
+    _, _, dt = sampling_window(duration, WobbleParams(amplitude=0.001, frequency=500.0), 0.002)
+    assert dt <= 1.0 / (500.0 * SAMPLES_PER_PERIOD)
+
+    # A very fast wobble is resolved over a window in the middle of the pass
+    # rather than by taking millions of samples over the whole of it.
+    t_from, t_to, dt_fast = sampling_window(
+        duration, WobbleParams(amplitude=0.001, frequency=2000.0), 0.002
+    )
+    assert dt_fast < dt
+    assert 0.0 < t_from < duration / 2.0
+    assert t_to < duration
+    # The window sits in the middle of the pass, and is short enough to sample.
+    assert t_from + t_to == pytest.approx(duration)
+    assert (t_to - t_from) / dt_fast <= MAX_SAMPLES
+
+    # No wobble needs no refinement, and the whole pass is used.
+    assert sampling_window(duration, WobbleParams(amplitude=0.0, frequency=0.0), 0.002) == (
+        0.0,
+        duration,
+        0.002,
+    )
+
+
+def test_grain_coarsening_dwell_is_not_the_melt_dwell(steel_run, steel):
+    """Coarsening time must be the time above the coarsening temperature.
+
+    The solver's ``dwell_above`` counter is the melt dwell (above the solidus),
+    a much shorter and unrelated interval, so reading it here made the toughness
+    warning fire on the wrong quantity.
+    """
+    _, result = steel_run
+    x, y, history = result["x"], result["y"], result["history"]
+    coarse_limit = steel.grain_coarsening_temperature
+    assert coarse_limit is not None and coarse_limit < steel.solidus
+
+    micro = predict_microstructure(x, y, history, steel, t_8_5=10.0, cooling_rate=30.0)
+    assert micro.coarse_grain_dwell is not None
+    melt_dwell = float(history.dwell_above.max())
+    assert micro.coarse_grain_dwell > melt_dwell
+
+    tracked = history.time_above(coarse_limit)
+    assert tracked is not None
+    assert micro.coarse_grain_dwell == pytest.approx(float(tracked.max()))
+
+
+def test_coarsening_dwell_is_none_when_untracked(steel_run, steel):
+    _, result = steel_run
+    history = result["history"]
+    untracked = ThermalHistory(
+        T_peak=history.T_peak,
+        t_peak=history.t_peak,
+        t_8_5=history.t_8_5,
+        cooling_rate=history.cooling_rate,
+        dwell_above=history.dwell_above,
+        dwell_temp=history.dwell_temp,
+    )
+    micro = predict_microstructure(
+        result["x"], result["y"], untracked, steel, t_8_5=10.0, cooling_rate=30.0
+    )
+    assert micro.coarse_grain_dwell is None
+    assert not any("grain coarsening" in w for w in micro.warnings)
 
 
 def test_build_report_produces_a_full_assessment(steel_run):

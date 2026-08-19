@@ -16,6 +16,17 @@ import streamlit as st
 from matplotlib import cm
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  registers the '3d' projection
 
+from weldsim.calibration import (
+    EFFICIENCY_CANDIDATES,
+    TAPER_CANDIDATES,
+    Calibration,
+    Comparison,
+    Coupon,
+    Mesh,
+    calibrate,
+    calibration_yaml,
+    compare,
+)
 from weldsim.errors import WeldSimError
 from weldsim.materials import Material, list_materials, load_material
 from weldsim.report import WeldReport, build_report
@@ -26,7 +37,7 @@ from weldsim.simulation import (
 )
 from weldsim.thermal.solver3d import DT_SAFETY, stable_dt
 from weldsim.types import WeldParams
-from weldsim.wobble_analysis import energy_density_map
+from weldsim.wobble_analysis import energy_density_map, sampling_window
 from weldsim.weld_path import (
     WeldPath,
     WobbleParams,
@@ -466,6 +477,15 @@ def _render_weld_report(
                 if micro.carbon_equivalent is not None:
                     st.metric("Carbon equivalent (IIW)", f"{micro.carbon_equivalent:.2f}")
                 st.metric("Coarse-grained band", f"{micro.coarse_grain_width * 1e3:.2f} mm")
+                if micro.coarse_grain_dwell is not None:
+                    st.metric(
+                        "Time above coarsening temperature",
+                        f"{micro.coarse_grain_dwell:.2f} s",
+                        help=(
+                            "Longest time any coarse-grained HAZ point stayed above "
+                            "the grain-coarsening temperature — not the melt dwell."
+                        ),
+                    )
         if micro.bands:
             st.dataframe(
                 [
@@ -741,6 +761,9 @@ def _page_thermal_and_wobble():
                 x = np.linspace(0, Lx, nx)
                 y = np.linspace(0, Ly, ny)
                 t_max = min(t_end, path.duration * 1.2)
+                # The sampling has to follow the wobble frequency, or a fast
+                # oscillation is sampled at one phase and draws as a straight line.
+                t_from, t_to, heat_dt = sampling_window(t_max, wobble, min(0.002, dt))
                 Q = heat_signature(
                     path=path,
                     wobble=wobble,
@@ -750,14 +773,16 @@ def _page_thermal_and_wobble():
                     h=T1,
                     x=x,
                     y=y,
-                    t_end=t_max,
-                    dt=min(0.002, dt),
+                    t_end=t_to,
+                    dt=heat_dt,
+                    t_start=t_from,
                 )
                 x_traj, y_traj = beam_trajectory(
                     path=path,
                     wobble=wobble,
-                    t_end=t_max,
-                    dt=min(0.0005, dt / 2),
+                    t_end=t_to,
+                    dt=min(heat_dt / 2, 0.0005),
+                    t_start=t_from,
                 )
             st.session_state["Q"] = Q
             st.session_state["x_traj"] = x_traj
@@ -851,7 +876,7 @@ def _page_thermal_and_wobble():
                                 t_end=t_end_anim,
                                 frame_dt=anim_dt,
                                 trail_time=trail,
-                                heat_dt=0.002,
+                                heat_dt=sampling_window(trail, wobble, 0.002)[2],
                                 fps=fps,
                                 gif_width=400,
                             )
@@ -943,6 +968,246 @@ def _page_thermal_and_wobble():
             )
         else:
             st.info("Run a simulation on the **Setup** tab to see results.")
+
+
+COUPON_COLUMNS = [
+    "Label",
+    "Power (W)",
+    "Speed (mm/s)",
+    "Thickness (mm)",
+    "Beam radius (mm)",
+    "Measured penetration (mm)",
+    "Measured fusion width (mm)",
+]
+
+EXAMPLE_COUPONS = [
+    ["P2000-v20", 2000.0, 20.0, 3.0, 0.2, 1.5, 1.2],
+    ["P3000-v20", 3000.0, 20.0, 3.0, 0.2, 2.2, 1.4],
+    ["P2000-v40", 2000.0, 40.0, 3.0, 0.2, 1.0, 0.9],
+]
+
+
+def _coupons_from_rows(rows) -> list[Coupon]:
+    """Build coupons from the measurement editor, skipping blank rows."""
+    coupons: list[Coupon] = []
+    for i, row in enumerate(rows):
+        power = row.get("Power (W)")
+        penetration = row.get("Measured penetration (mm)")
+        if not power or penetration is None:
+            continue
+        width = row.get("Measured fusion width (mm)")
+        coupons.append(
+            Coupon(
+                label=str(row.get("Label") or f"coupon {i + 1}"),
+                power=float(power),
+                speed=float(row.get("Speed (mm/s)") or 0.0) / 1e3,
+                thickness=float(row.get("Thickness (mm)") or 0.0) / 1e3,
+                penetration=float(penetration) / 1e3,
+                fusion_width=float(width) / 1e3 if width else None,
+                sigma=float(row.get("Beam radius (mm)") or 0.0) / 1e3,
+            )
+        )
+    return coupons
+
+
+def _plot_measured_vs_predicted(comparison: Comparison) -> plt.Figure:
+    """Parity plot: points on the diagonal mean the model matches the macros."""
+    measured = [r.measured_penetration * 1e3 for r in comparison.residuals]
+    predicted = [r.predicted_penetration * 1e3 for r in comparison.residuals]
+    fig, ax = plt.subplots(figsize=(5, 5))
+    limit = max(measured + predicted + [0.1]) * 1.15
+    ax.plot([0, limit], [0, limit], "k--", lw=1, label="perfect agreement")
+    ax.plot([0, limit], [0, 1.2 * limit], color="0.7", lw=0.8)
+    ax.plot([0, limit], [0, 0.8 * limit], color="0.7", lw=0.8, label="\u00b120%")
+    ax.scatter(measured, predicted, s=60, color="tab:red", zorder=3)
+    for r, m, p in zip(comparison.residuals, measured, predicted):
+        ax.annotate(r.label, (m, p), textcoords="offset points", xytext=(6, 4), fontsize=8)
+    ax.set_xlim(0, limit)
+    ax.set_ylim(0, limit)
+    ax.set_xlabel("Measured penetration (mm)")
+    ax.set_ylabel("Predicted penetration (mm)")
+    ax.set_title("Macro-section parity")
+    ax.legend(loc="lower right", fontsize=8)
+    return fig
+
+
+def _residual_rows(comparison: Comparison) -> list[dict]:
+    rows = []
+    for r in comparison.residuals:
+        error = r.penetration_error_percent
+        measured_width = r.measured_fusion_width
+        rows.append(
+            {
+                "Coupon": r.label,
+                "Measured depth (mm)": round(r.measured_penetration * 1e3, 2),
+                "Predicted depth (mm)": round(r.predicted_penetration * 1e3, 2),
+                "Depth error (%)": None if error is None else round(error, 1),
+                "Measured width (mm)": (
+                    None if measured_width is None else round(measured_width * 1e3, 2)
+                ),
+                "Predicted width (mm)": round(r.predicted_fusion_width * 1e3, 2),
+                "Full penetration": r.full_penetration,
+            }
+        )
+    return rows
+
+
+def _calibration_controls(coupons: list[Coupon], material: Material, mesh: Mesh) -> None:
+    """Compare / fit buttons, and store whatever they produce in the session."""
+    left, right = st.columns(2)
+    with left:
+        efficiency = st.slider(
+            "Absorption efficiency to compare at", 0.1, 1.0, 0.8, 0.05, key="cal_eff"
+        )
+        compare_now = st.button("Compare with current settings", width="stretch")
+    with right:
+        st.caption(
+            f"Fitting solves every coupon at every trial setting: "
+            f"{len(coupons)} coupons x {len(EFFICIENCY_CANDIDATES) * len(TAPER_CANDIDATES)} "
+            "trials, so expect it to take a while."
+        )
+        fit_now = st.button("Fit absorption and keyhole taper", type="primary", width="stretch")
+
+    if not (compare_now or fit_now):
+        return
+
+    progress = st.progress(0.0, text="Solving coupons...")
+    try:
+        if fit_now:
+            calibration = calibrate(
+                coupons,
+                material,
+                mesh=mesh,
+                baseline_efficiency=efficiency,
+                on_progress=lambda f: progress.progress(f, text="Searching absorption/taper..."),
+            )
+            st.session_state["calibration"] = calibration
+            st.session_state["comparison"] = calibration.comparison
+        else:
+            st.session_state["comparison"] = compare(
+                coupons,
+                material,
+                efficiency,
+                mesh=mesh,
+                on_progress=lambda f: progress.progress(f, text="Solving coupons..."),
+            )
+            st.session_state.pop("calibration", None)
+    except WeldSimError as exc:
+        st.error(str(exc))
+    finally:
+        progress.empty()
+
+
+def _show_calibration(calibration: Calibration) -> None:
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Fitted absorption efficiency", f"{calibration.efficiency:.2f}")
+    m2.metric(
+        "Fitted keyhole taper",
+        f"{calibration.keyhole_taper:.2f}",
+        help="Capillary radius at its tip as a fraction of its radius at the surface.",
+    )
+    m3.metric(
+        "Relative error after fitting",
+        f"{calibration.cost * 100:.1f}%",
+        delta=f"{-calibration.improvement * 100:.0f}% vs uncalibrated",
+        delta_color="inverse",
+    )
+    st.download_button(
+        "Download calibration (YAML)",
+        data=calibration_yaml(calibration).encode("utf-8"),
+        file_name=f"calibration_{calibration.material}.yaml",
+        mime="text/yaml",
+    )
+    st.caption(
+        "Enter the fitted efficiency on the **Weld simulation** page to run calibrated "
+        "predictions. The fit holds only for the material, thickness and process window "
+        "the coupons covered."
+    )
+    if calibration.efficiency >= max(EFFICIENCY_CANDIDATES):
+        st.warning(
+            "The fit ran into the top of the absorption range, so the model still cannot "
+            "reach the measured depths: suspect a tighter focus, a deeper capillary, or "
+            "macros from a different beam setup."
+        )
+
+
+def _page_calibration():
+    st.header("Measured vs predicted")
+    st.info(
+        "Weld a bracket of coupons at a fixed focus, varying power and travel speed, then "
+        "cut, polish and etch them and measure the fusion boundary. Entering those "
+        "measurements here shows how far the model is off, and fits the two things it "
+        "cannot know about your machine: how much beam power is absorbed, and how the "
+        "capillary narrows with depth."
+    )
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        material_name = st.selectbox("Material", list_materials(), key="cal_material")
+    with c2:
+        nz = st.slider("Grid points through thickness", 7, 21, 11, 2, key="cal_nz")
+    with c3:
+        weld_length = st.number_input(
+            "Simulated weld length (mm)",
+            min_value=5.0,
+            max_value=60.0,
+            value=20.0,
+            step=5.0,
+            help="Long enough for the sectioned position to be quasi-steady.",
+        )
+
+    st.subheader("Coupon measurements")
+    edited = st.data_editor(
+        [dict(zip(COUPON_COLUMNS, row)) for row in EXAMPLE_COUPONS],
+        num_rows="dynamic",
+        width="stretch",
+        key="coupon_editor",
+    )
+
+    try:
+        material = load_material(material_name)
+        coupons = _coupons_from_rows(edited)
+        for coupon in coupons:
+            coupon.validate()
+    except (WeldSimError, FileNotFoundError, ValueError) as exc:
+        st.error(str(exc))
+        return
+
+    if not coupons:
+        st.warning("Enter at least one coupon with a power and a measured penetration.")
+        return
+
+    _calibration_controls(coupons, material, Mesh(nz=nz, weld_length=weld_length / 1e3))
+
+    calibration = st.session_state.get("calibration")
+    if calibration is not None:
+        _show_calibration(calibration)
+
+    comparison = st.session_state.get("comparison")
+    if comparison is None:
+        st.info("Enter your measurements, then compare or fit.")
+        return
+
+    st.subheader("Residuals")
+    st.dataframe(_residual_rows(comparison), width="stretch")
+    a, b = st.columns(2)
+    with a:
+        _show(_plot_measured_vs_predicted(comparison))
+    with b:
+        st.metric("Penetration RMS error", f"{comparison.penetration_rms * 1e3:.2f} mm")
+        st.metric(
+            "Penetration bias",
+            f"{comparison.penetration_bias * 1e3:+.2f} mm",
+            help="Positive means the model predicts deeper welds than you measured.",
+        )
+        width_rms = comparison.width_rms
+        if width_rms is not None:
+            st.metric("Fusion width RMS error", f"{width_rms * 1e3:.2f} mm")
+        st.caption(
+            "Calibration removes systematic bias. Scatter that survives the fit is either "
+            "physics this model does not carry — melt flow, vapour loss, focus drift — or "
+            "spread in the sectioning itself."
+        )
 
 
 def _page_keyhole_cfd():
@@ -1116,6 +1381,14 @@ def _page_docs():
         - Distortion is an inherent-strain estimate, not thermo-mechanical FEA
         - Treat every number as parameter screening, not weld-procedure qualification
 
+        **Measured vs predicted**
+        - Enter the penetration and fusion width measured on etched macro-sections and see
+          per-coupon residuals, a parity plot, RMS error and systematic bias
+        - Fits the two machine-specific unknowns — absorption efficiency and keyhole taper
+          — to your coupons, and exports the fit as YAML
+        - Empirical: valid over the material, thickness and process window you measured,
+          and not a substitute for procedure qualification
+
         **Optional: OpenFOAM export (advanced)**
         - Exports the same job as an OpenFOAM VOF case (`laserKeyholeVoF`) with
           enthalpy-porosity melting, recoil pressure and laser ray tracing
@@ -1136,11 +1409,13 @@ def main():
 
     page = st.sidebar.radio(
         "Navigation",
-        ["Weld simulation", "OpenFOAM export (optional)", "Docs"],
+        ["Weld simulation", "Measured vs predicted", "OpenFOAM export (optional)", "Docs"],
     )
 
     if page == "Weld simulation":
         _page_thermal_and_wobble()
+    elif page == "Measured vs predicted":
+        _page_calibration()
     elif page == "OpenFOAM export (optional)":
         _page_keyhole_cfd()
     elif page == "Docs":

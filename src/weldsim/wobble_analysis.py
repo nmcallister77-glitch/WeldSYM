@@ -20,6 +20,37 @@ import numpy as np
 from .types import WeldParams
 from .weld_path import WeldPath, WobbleParams, beam_at_time, heat_signature
 
+#: Samples per oscillation period the energy map is integrated with. A fixed
+#: sampling interval aliases: at 500 Hz a 2 ms step lands on the same phase every
+#: time, so the beam appears to run in a straight line and the concentration
+#: metrics come out as if there were no wobble at all.
+SAMPLES_PER_PERIOD = 12
+
+#: Ceiling on the number of samples one energy map may take. Resolving a 2 kHz
+#: wobble over a multi-second pass would otherwise need millions of Gaussian
+#: evaluations, so the map is integrated over a window of the pass instead —
+#: which is what the metrics need, since they are taken over the beam track.
+MAX_SAMPLES = 12_000
+
+
+def sampling_window(
+    duration: float,
+    wobble: WobbleParams,
+    dt: float,
+) -> tuple[float, float, float]:
+    """``(t_start, t_end, dt)`` for integrating the energy map over ``duration``.
+
+    The step resolves the oscillation rather than being fixed, and if resolving
+    it over the whole pass would need more than :data:`MAX_SAMPLES` samples, a
+    centred window of the pass is used: the middle of the pass is the
+    quasi-steady part, away from the cold run-in and the stop crater.
+    """
+    if wobble.frequency > 0:
+        dt = min(dt, 1.0 / (wobble.frequency * SAMPLES_PER_PERIOD))
+    window = min(duration, MAX_SAMPLES * dt)
+    t_start = max(0.0, (duration - window) / 2.0)
+    return t_start, t_start + window, dt
+
 
 @dataclass
 class WobbleAnalysis:
@@ -88,6 +119,7 @@ def analyse_wobble(
     matching the thermal model, so the maps are directly comparable.
     """
     duration = t_end if t_end is not None else path.duration
+    t_from, t_to, dt = sampling_window(duration, wobble, dt)
     beam_diameter = 2.0 * weld.sigma
 
     if wobble.frequency > 0:
@@ -114,8 +146,9 @@ def analyse_wobble(
             thickness,
             x,
             y,
-            duration,
+            t_to,
             dt=dt,
+            t_start=t_from,
         )
         return volumetric * thickness  # J/m³ → J/m²
 
@@ -139,6 +172,12 @@ def analyse_wobble(
         uniformity = 1.0
 
     notes: list[str] = []
+    if t_from > 0:
+        notes.append(
+            f"Heat map integrated over the {t_to - t_from:.2f} s in the middle "
+            f"of the pass, sampled every {dt * 1e6:.0f} µs, which resolves the "
+            "oscillation; the ends of the pass are outside the window."
+        )
     if wobble.frequency <= 0 or wobble.amplitude <= 0:
         notes.append("No wobble: the beam runs straight along the path.")
     elif overlap <= 0:
@@ -193,6 +232,7 @@ def energy_density_map(
 ) -> np.ndarray:
     """Absorbed energy per unit area over the plate (J/m², shape ``(nx, ny)``)."""
     duration = t_end if t_end is not None else path.duration
+    t_from, t_to, dt = sampling_window(duration, wobble, dt)
     volumetric = heat_signature(
         path,
         wobble,
@@ -202,10 +242,17 @@ def energy_density_map(
         thickness,
         x,
         y,
-        duration,
+        t_to,
         dt=dt,
+        t_start=t_from,
     )
     return volumetric * thickness
 
 
-__all__ = ["WobbleAnalysis", "analyse_wobble", "energy_density_map", "beam_speed"]
+__all__ = [
+    "WobbleAnalysis",
+    "analyse_wobble",
+    "energy_density_map",
+    "beam_speed",
+    "sampling_window",
+]
