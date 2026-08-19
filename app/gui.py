@@ -676,7 +676,7 @@ def _load_preset_into_setup(preset: Preset, top_mm: float, bottom_mm: float) -> 
     st.session_state["power"] = float(preset.power)
     st.session_state["efficiency"] = float(preset.efficiency)
     st.session_state["speed"] = float(preset.speed)
-    st.session_state["beam_radius"] = float(preset.sigma * 1e6)
+    st.session_state["spot_size_mm"] = float(preset.sigma * 2e3)
     st.session_state["start_x_mm"] = float(preset.start[0]) * 1e3
     st.session_state["start_y_mm"] = float(preset.start[1]) * 1e3
     st.session_state["end_x_mm"] = float(preset.end[0]) * 1e3
@@ -854,7 +854,7 @@ def _page_thermal_and_wobble():
                     "Power (W)": preset.power,
                     "Efficiency": preset.efficiency,
                     "Speed (m/s)": preset.speed,
-                    "Beam 1/e² radius (µm)": round(preset.sigma * 1e6, 1),
+                    "Spot size (mm)": round(preset.sigma * 2e3, 2),
                     "Total stack thickness (mm)": top_mm + bottom_mm,
                     "Heat-spreading depth T1 (mm)": top_mm + bottom_mm,
                     "Solver": preset.solver,
@@ -921,10 +921,10 @@ def _page_thermal_and_wobble():
             power = st.slider("Power (W)", 100.0, 8000.0, 1500.0, 50.0, key="power")
             efficiency = st.slider("Efficiency", 0.1, 1.0, 0.8, 0.05, key="efficiency")
             speed = st.slider("Travel speed (m/s)", 0.001, 0.05, 0.01, 0.001, key="speed")
-            beam_radius = st.slider(
-                "Beam 1/e² radius (µm)", 50.0, 1000.0, 500.0, 25.0, key="beam_radius"
+            spot_size_mm = st.number_input(
+                "Spot size (mm)", 0.05, 5.0, 1.0, 0.05, key="spot_size_mm"
             )
-            sigma = beam_radius * 1e-6
+            sigma = spot_size_mm * 1e-3 / 2.0
 
         st.subheader("Weld path")
         c3, c4 = st.columns(2)
