@@ -27,8 +27,11 @@ from weldsim.calibration import (
     calibration_yaml,
     compare,
 )
+from dataclasses import replace
+
 from weldsim.errors import WeldSimError
 from weldsim.materials import Material, list_materials, load_material
+from weldsim.presets import PRESETS, Preset
 from weldsim.report import WeldReport, build_report
 from weldsim.simulation import (
     Solution3D,
@@ -570,6 +573,90 @@ def _render_weld_report(
     )
 
 
+def _run_preset(preset: Preset) -> None:
+    """Run a configured preset and populate the shared session state used by the result tabs."""
+    try:
+        config = preset.make_config()
+    except Exception as exc:
+        st.error(f"Could not load preset: {exc}")
+        return
+
+    material = config.material
+    weld = config.weld
+    path = config.path
+    wobble = config.wobble or WobbleParams(0.0, 0.0, "circle")
+    assert isinstance(material, Material)
+    assert weld is not None and path is not None
+
+    # Heat-signature preview (used by the Wobble signature tab).
+    x = np.linspace(0.0, config.Lx, config.nx)
+    y = np.linspace(0.0, config.Ly, config.ny)
+    t_max = min(config.t_end, path.duration * 1.2)
+    t_from, t_to, heat_dt = sampling_window(t_max, wobble, min(0.002, config.dt))
+    Q = heat_signature(
+        path=path,
+        wobble=wobble,
+        power=weld.power,
+        efficiency=weld.efficiency,
+        sigma=weld.sigma,
+        h=config.T1,
+        x=x,
+        y=y,
+        t_end=t_to,
+        dt=heat_dt,
+        t_start=t_from,
+    )
+    x_traj, y_traj = beam_trajectory(
+        path=path,
+        wobble=wobble,
+        t_end=t_to,
+        dt=min(heat_dt / 2.0, 0.0005),
+        t_start=t_from,
+    )
+
+    bar = st.progress(0.0, text=f"Running {preset.name} preset...")
+
+    def report_progress(fraction: float) -> None:
+        bar.progress(
+            min(fraction, 1.0),
+            text=f"Running {preset.name}... {fraction * 100:.0f}%",
+        )
+
+    try:
+        result = run_thermal_simulation(config, on_progress=report_progress)
+        report = build_report(config, result)
+    except WeldSimError as exc:
+        st.error(str(exc))
+        return
+    finally:
+        bar.empty()
+
+    # Populate the state used by the Wobble / Weld result / Thermal field tabs.
+    st.session_state["Q"] = Q
+    st.session_state["x_traj"] = x_traj
+    st.session_state["y_traj"] = y_traj
+    st.session_state["x"] = x
+    st.session_state["y"] = y
+    st.session_state["Lx"] = config.Lx
+    st.session_state["Ly"] = config.Ly
+    st.session_state["weld"] = weld
+    st.session_state["path"] = path
+    st.session_state["wobble"] = wobble
+    st.session_state["material"] = material
+    st.session_state["t_end"] = config.t_end
+    st.session_state["T1"] = config.T1
+
+    st.session_state["thermal_result"] = result
+    st.session_state["weld_report"] = report
+    st.session_state["thermal_config"] = config
+    st.session_state["thermal_material"] = material
+    st.session_state["thermal_weld"] = weld
+    st.session_state["thermal_x1"] = path.end[0]
+    st.session_state["thermal_y1"] = path.end[1]
+
+    st.success(f"{preset.name} completed — see Weld result / Thermal field tabs.")
+
+
 def _page_thermal_and_wobble():
     st.header("Weld simulation")
     st.caption(
@@ -577,6 +664,62 @@ def _page_thermal_and_wobble():
         "locally and reports fusion zone, penetration, HAZ metallurgy, distortion and "
         "heat concentration. No internet or external solver needed."
     )
+
+    # --- Presets: one-click runs for common configurations ---
+    if PRESETS:
+        with st.expander("Presets", expanded=False):
+            preset_options = ["(none)"] + list(PRESETS.keys())
+            preset_name = st.selectbox("Quick-start preset", preset_options)
+
+            if preset_name != "(none)":
+                preset = PRESETS[preset_name]
+
+                # Sync the stackup inputs when the selected preset changes.
+                last = st.session_state.get("_last_preset")
+                if last != preset_name:
+                    st.session_state["_last_preset"] = preset_name
+                    st.session_state["_preset_top"] = preset.top_thickness_mm
+                    st.session_state["_preset_bottom"] = preset.bottom_thickness_mm
+
+                st.markdown(f"**{preset_name}** — {preset.description}")
+                for note in preset.notes:
+                    st.caption(note)
+
+                c_top, c_bot = st.columns(2)
+                with c_top:
+                    top_mm = st.number_input(
+                        "Top sheet thickness (mm)",
+                        0.05,
+                        10.0,
+                        key="_preset_top",
+                    )
+                with c_bot:
+                    bottom_mm = st.number_input(
+                        "Bottom sheet thickness (mm)",
+                        0.05,
+                        10.0,
+                        key="_preset_bottom",
+                    )
+
+                params = {
+                    "Power (W)": preset.power,
+                    "Efficiency": preset.efficiency,
+                    "Speed (m/s)": preset.speed,
+                    "Beam 1/e² radius (µm)": round(preset.sigma * 1e6, 1),
+                    "Total stack thickness (mm)": top_mm + bottom_mm,
+                    "Heat-spreading depth T1 (mm)": top_mm + bottom_mm,
+                    "Solver": preset.solver,
+                    "Grid": f"{preset.nx} × {preset.ny} × {preset.nz}",
+                }
+                st.json(params)
+
+                if st.button(f"Run {preset_name}", type="primary"):
+                    configured = replace(
+                        preset,
+                        top_thickness_mm=top_mm,
+                        bottom_thickness_mm=bottom_mm,
+                    )
+                    _run_preset(configured)
 
     tab_setup, tab_wobble, tab_weld, tab_thermal = st.tabs(
         ["Setup", "Wobble signature", "Weld result", "Thermal field"]

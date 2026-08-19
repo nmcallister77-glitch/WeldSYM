@@ -177,6 +177,20 @@ On the **OpenFOAM export (optional)** page you can also:
 - Preview the STL in 3D
 - Open the **WSL runner** panel and run `blockMesh` / `laserKeyholeVoF` directly from the GUI
 
+## Presets
+
+The **Presets** expander on the **Weld simulation** page lets you run a complete configuration with one click. The built-in "2t copper lap joint" preset is set up for a 2t lap stack (default: two 1 mm copper sheets, total 2 mm, welded with the beam passing through the top sheet into the bottom one). You can edit the top and bottom sheet thicknesses independently to model dissimilar-gauge lap joints.
+
+You can also run presets from the CLI:
+
+```powershell
+# 2t copper lap joint, default 1 mm + 1 mm
+python -m weldsim.cli --preset "2t copper lap joint" --report copper.json
+
+# dissimilar-gauge lap joint
+python -m weldsim.cli --preset "2t copper lap joint" --thickness-top 1.2 --thickness-bottom 0.8 --report copper.json
+```
+
 ## CLI
 
 ```powershell

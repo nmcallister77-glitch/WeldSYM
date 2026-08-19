@@ -62,7 +62,9 @@ that would take minutes, and the GUI shows an estimated run time before you pres
 - `src/weldsim/calibration.py` — measured macro-sections in, residuals out, plus a grid
   search that fits absorption efficiency and keyhole taper to them. The fit is empirical
   and only valid over the process window the coupons covered.
-- `src/weldsim/cli.py` — CLI, `--solver 2d|3d`, `--nz`, `--dt-3d`, `--report`.
+- `src/weldsim/presets.py` — named one-click configs (e.g. 2t copper lap joint), with
+  split top/bottom thickness for dissimilar-gauge 2t stackups.
+- `src/weldsim/cli.py` — CLI, `--solver 2d|3d`, `--nz`, `--dt-3d`, `--report`, plus `--preset`.
 - `keyhole-cfd/` — optional OpenFOAM case, prep scripts and `laserKeyholeVoF` solver source.
 
 ## OpenFOAM route (optional, Linux/WSL2 only)

@@ -1,0 +1,96 @@
+# Copper (C11000 / pure Cu) — Temperature-dependent properties for welding simulation
+# Units: SI unless noted
+# Note: copper is highly reflective and thermally conductive, so effective
+# absorption is low until a keyhole is established. Use the calibration page
+# or a measured coupon to fit efficiency and keyhole taper for a specific laser.
+
+alloy:
+  name: "Copper"
+  composition:
+    Cu: 99.9
+  density_solid_ref: 8960.0           # kg/m³ at 293 K
+
+phase_change:
+  solidus_temperature: 1358.0         # K
+  liquidus_temperature: 1358.0        # K (pure copper, single melting point)
+  boiling_temperature: 2835.0         # K
+  latent_heat_fusion: 206000.0        # J/kg
+  latent_heat_vaporization: 4726000.0 # J/kg
+  reference_temperature: 293.15
+
+thermal:
+  temperature: [293, 500, 800, 1100, 1358, 1600, 2000, 2500, 3000]
+  density: [8960, 8870, 8720, 8560, 8400, 8000, 7850, 7700, 7500]           # kg/m³
+  specific_heat: [385, 410, 440, 470, 500, 530, 550, 570, 600]              # J/kg·K
+  thermal_conductivity: [401, 380, 350, 320, 310, 180, 170, 160, 150]       # W/m·K
+
+fluid:
+  temperature: [1358, 1600, 2000, 2500, 3000]
+  dynamic_viscosity: [0.0035, 0.0032, 0.0028, 0.0025, 0.0022]              # Pa·s
+
+surface:
+  temperature: [1358, 1600, 2000, 2500, 3000]
+  surface_tension: [1.30, 1.25, 1.15, 1.05, 0.95]                          # N/m
+  marangoni_coefficient: [-0.00030, -0.00032, -0.00035, -0.00038, -0.00040] # dσ/dT [N/m·K]
+
+optical:
+  # Effective Fresnel values for NIR (1 µm) laser on copper at high temperature.
+  # Copper is highly reflective at room temperature; these numbers describe the
+  # molten-pool surface once a stable keyhole has formed.
+  temperature: [1358, 2000, 3000]
+  n_real: [1.5, 2.0, 2.5]
+  n_imag: [2.5, 3.0, 3.5]
+
+vapor:
+  molar_mass: 0.06355                    # kg/mol
+  saturation_pressure_model: "clausius_clapeyron"
+  vaporization_coefficient: 0.80
+
+thermomechanical:
+  reference_temperature: 293.15
+  temperature: [293, 500, 800, 1100, 1358]
+  youngs_modulus: [110e9, 100e9, 85e9, 55e9, 20e9]                        # Pa
+  yield_stress: [70e6, 60e6, 45e6, 25e6, 10e6]                            # Pa
+  thermal_expansion: [16.5e-6, 17.5e-6, 18.5e-6, 19.5e-6, 21.0e-6]        # 1/K
+  poisson_ratio: 0.34
+  hardening:
+    type: "isotropic"
+    temperature: [293, 800, 1100]
+    H: [600e6, 300e6, 50e6]                                              # Pa (plastic modulus)
+
+recoil_pressure:
+  prefactor: 0.54
+  atmospheric_pressure: 101325.0
+  clamp: [0.0, 8.0e6]
+
+# Copper does not form martensite. The HAZ is dominated by grain growth and
+# recrystallisation. The cooling response is set so it always returns the same
+# diffusional product (recrystallised copper) regardless of cooling rate.
+haz:
+  grain_coarsening_temperature: 1000.0   # K, significant grain growth above this
+  lower_limit_temperature: 470.0         # K, recrystallisation / stress relief
+  base_hardness_hv: 60.0
+  zones:
+    - name: "Fusion zone"
+      t_min: 1358.0
+      t_max: 1600.0
+      note: "Melted and resolidified copper."
+    - name: "Coarse-grained HAZ"
+      t_min: 1000.0
+      t_max: 1358.0
+      note: "Significant grain growth; lower electrical conductivity and toughness."
+    - name: "Recrystallised HAZ"
+      t_min: 470.0
+      t_max: 1000.0
+      note: "Recrystallisation and stress relief; fine equiaxed grains."
+  cooling_response:
+    # Copper does not undergo a martensitic transformation. Using the rate-based
+    # model with impossibly high thresholds ensures the HAZ is always predicted as
+    # recrystallised copper, regardless of the local cooling rate.
+    kind: "martensitic_rate"
+    rate_full_martensite: 1.0e20
+    rate_no_martensite: 1.0e9
+    fast_phase: "Recrystallised copper"
+    slow_phase: "Recrystallised copper"
+    fast_hardness_hv: 60.0
+    slow_hardness_hv: 60.0
