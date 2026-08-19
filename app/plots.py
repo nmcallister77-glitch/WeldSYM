@@ -537,6 +537,10 @@ def plot_weld_3d_animation(
         for t in solution.frame_times
     ]
 
+    dynamic_indices = list(range(len(base_traces) - 2, len(base_traces)))
+    for frame in frames:
+        frame.traces = dynamic_indices
+
     fig = go.Figure(data=base_traces, frames=frames)
     fig.update_layout(
         **_default_layout("3D weld animation"),
