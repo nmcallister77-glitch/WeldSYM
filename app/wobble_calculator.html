@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wobble Calculator V4 - Cross Section & Power Modulation</title>
+  <style>
+      :root {
+      /* Colors: Navy, White, Red, Orange */
+      --bg-color: #4a5568;         /* Deep professional Navy */
+      --panel-bg: #003366;         /* Slightly lighter Navy for panels */
+      --border-color: #E31B23;     /* Crisp, subtle separator lines */
+      --input-bg: #081526;         /* Dark input background */
+      
+      --accent-red: #d92727;       /* IPG Red */
+      --accent-red-hover: #FF6600; /* Darker red for hover */
+      --accent-orange: #FF6600;    /* IPG Orange */
+      
+      --text-color: #ffffff;       /* Pure white for high contrast */
+      --text-dim: #FF6600;         /* Muted blue-gray for secondary text */
+      
+      /* Geometry: Sharp corners (less than 6px) */
+      --radius: 0.5px;               /* Main panels and buttons */
+      --radius-sm: 0.5px;            /* Inputs and inner containers */
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { background-color: var(--bg-color); color: var(--text-color); display: flex; flex-direction: column; min-height: 100vh; padding: 16px; }
+    
+    header { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: flex-end; }
+    header h1 { font-size: 1.4rem; color: #fff; font-weight: 700; }
+    header p { font-size: 0.85rem; color: var(--text-dim); margin-top: 4px; }
+    .header-badge { background: #1e293b; color: #38bdf8; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; border: 1px solid #0369a1; }
+
+    .main-container { display: grid; grid-template-columns: 360px 1fr; gap: 16px; flex: 1; }
+    @media (max-width: 1000px) { .main-container { grid-template-columns: 1fr; } }
+
+    .panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; max-height: calc(100vh - 90px); }
+    .section-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent-color); font-weight: 700; border-bottom: 1px solid #2a313e; padding-bottom: 4px; margin-bottom: 4px;}
+    
+    .control-group { display: flex; flex-direction: column; gap: 6px; }
+    .control-label { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--text-color); }
+    
+    .num-input {
+      width: 80px;
+      background-color: var(--input-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      color: #38bdf8;
+      font-weight: 600;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.85rem;
+      text-align: right;
+      padding: 3px 6px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .num-input:focus {
+      border-color: var(--accent-color);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+    }
+    
+    input[type="range"] { width: 100%; height: 6px; background: var(--input-bg); border-radius: 3px; outline: none; accent-color: var(--accent-color); cursor: pointer; }
+    select { width: 100%; padding: 8px; background-color: var(--input-bg); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-color); font-size: 0.85rem; outline: none; cursor: pointer; }
+    select:focus { border-color: var(--accent-color); }
+
+    .button-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    button { padding: 10px; border: none; border-radius: 4px; font-weight: 600; font-size: 0.85rem; cursor: pointer; transition: background 0.15s; }
+    .btn-primary { background-color: var(--accent-color); color: white; }
+    .btn-primary:hover { background-color: var(--accent-hover); }
+    .btn-secondary { background-color: var(--input-bg); color: var(--text-color); border: 1px solid var(--border-color); }
+    .btn-secondary:hover { background-color: var(--border-color); }
+
+    .display-area { display: flex; flex-direction: column; gap: 12px; }
+    .top-bar { display: grid; grid-template-columns: 1fr 280px; gap: 12px; }
+    .metrics-bar { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    
+    .metric-card { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; }
+    .metric-card .title { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; }
+    .metric-card .value { font-size: 1.1rem; font-weight: 700; color: #fff; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; margin-top: 2px; }
+
+    .cross-section-container { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; align-items: center;}
+    .cross-section-title { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 6px; align-self: flex-start;}
+    #crossSectionCanvas { background: #050608; border: 1px solid #2a313e; border-radius: 4px;}
+
+    .canvas-container { flex: 1; background-color: #050608; border: 1px solid var(--border-color); border-radius: 8px; position: relative; min-height: 420px; overflow: hidden; }
+    #weldCanvas { display: block; width: 100%; height: 100%; }
+    
+    .legend-bar { position: absolute; bottom: 12px; right: 12px; background: rgba(21, 24, 31, 0.92); border: 1px solid var(--border-color); backdrop-filter: blur(6px); padding: 10px; border-radius: 6px; display: flex; flex-direction: column; gap: 6px; width: 200px; font-size: 0.7rem; }
+    .legend-title { font-weight: 600; color: var(--text-dim); font-size: 0.68rem; text-transform: uppercase; }
+    .legend-gradient { height: 10px; border-radius: 3px; width: 100%; border: 1px solid rgba(255,255,255,0.15); }
+    .legend-labels { display: flex; justify-content: space-between; color: var(--text-color); font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 0.65rem; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div>
+      <h1>Wobble Calculator V4</h1>
+      <p>Transverse Bead Profile, Dynamic Power Modulation</p>
+    </div>
+    <div class="header-badge">By Nick McAllister</div>
+  </header>
+
+  <div class="main-container">
+    <div class="panel">
+      
+      <div class="section-title">1. Wobble Geometry</div>
+      <div class="control-group">
+        <label class="control-label" for="pattern">Wobble Pattern Shape</label>
+        <select id="pattern">
+          <option value="circle">Circular</option>
+          <option value="figure8">Figure 8 (Longitudinal)</option>
+          <option value="infinity">Infinity (Transverse)</option>
+          <option value="sine">Linear / Sine Wave</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <div class="control-label">
+          <span>Width / Amplitude (mm)</span>
+          <input type="number" id="num-amplitude" class="num-input" min="0.0001" max="10.0" step="0.1" value="2.0">
+        </div>
+        <input type="range" id="amplitude" min="0.0001" max="10.0" step="0.0001" value="2.0">
+      </div>
+      <div class="control-group">
+        <div class="control-label">
+          <span>Frequency (Hz)</span>
+          <input type="number" id="num-frequency" class="num-input" min="5" max="50000" step="1" value="60">
+        </div>
+        <input type="range" id="frequency" min="5" max="50000" step="5" value="60">
+      </div>
+
+      <div class="section-title">2. Power Modulation</div>
+      <div class="control-group">
+        <label class="control-label" for="modType">Modulation Mode</label>
+        <select id="modType">
+          <option value="none">None (Constant Power)</option>
+          <option value="phase">Phase-Based (Synced to Cycle)</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <div class="control-label">
+          <span>Modulation Depth (%)</span>
+          <input type="number" id="num-modDepth" class="num-input" min="0" max="100" step="1" value="0">
+        </div>
+        <input type="range" id="modDepth" min="0" max="100" step="5" value="0">
+      </div>
+      <div class="control-group">
+        <div class="control-label">
+          <span>Phase Shift (deg)</span>
+          <input type="number" id="num-modPhase" class="num-input" min="-180" max="180" step="1" value="0">
+        </div>
+        <input type="range" id="modPhase" min="-180" max="180" step="15" value="0">
+      </div>
+
+      <div class="section-title">3. Process Parameters</div>
+      <div class="control-group">
+        <div class="control-label">
+          <span>Base Power (W)</span>
+          <input type="number" id="num-power" class="num-input" min="1" max="10000" step="50" value="1500">
+        </div>
+        <input type="range" id="power" min="100" max="10000" step="100" value="1500">
+      </div>
+      <div class="control-group">
+        <div class="control-label"><span>Travel Speed (mm/s)</span>
+          <input type="number" id="num-speed" class="num-input" min="1" max="3000" step="0.5" value="25">
+        </div>
+        <input type="range" id="speed" min="1" max="300" step="1" value="25">
+      </div>
+
+      <div class="section-title">4. Thermal Display & Palette Filter</div>
+      <div class="control-group">
+        <label class="control-label" for="colorPalette">Thermal Color Palette Filter</label>
+        <select id="colorPalette">
+          <option value="ironbow">Ironbow / Thermal Camera</option>
+          <option value="inferno">Inferno / Heatmap</option>
+          <option value="viridis">Viridis / High Contrast</option>
+          <option value="jet">Jet / Rainbow</option>
+          <option value="plasma">Plasma / Neon</option>
+          <option value="grayscale">Monochrome / Grayscale</option>
+        </select>
+      </div>
+
+      <div class="button-group">
+        <button class="btn-primary" id="btn-run">Run Weld</button>
+        <button class="btn-secondary" id="btn-reset">Reset Defaults</button>
+      </div>
+
+    </div>
+
+    <div class="display-area">
+      <div class="top-bar">
+        <div class="metrics-bar">
+          <div class="metric-card"><div class="title">Linear Heat Input</div><div class="value" id="metric-heatinput">60.0 J/mm</div></div>
+          <div class="metric-card"><div class="title">Wobble Pitch</div><div class="value" id="metric-pitch">0.42 mm</div></div>
+          <div class="metric-card"><div class="title">Linear Overlap</div><div class="value" id="metric-overlap">86.0%</div></div>
+          <div class="metric-card"><div class="title">Mod. Power Range</div><div class="value" id="metric-modRange">1500 W</div></div>
+        </div>
+        <div class="cross-section-container">
+          <div class="cross-section-title">Predicted Weld Cross Section</div>
+          <canvas id="crossSectionCanvas" width="260" height="100"></canvas>
+        </div>
+      </div>
+
+      <div class="canvas-container">
+        <canvas id="weldCanvas"></canvas>
+        <div class="legend-bar">
+          <span class="legend-title">Heat Density Filter</span>
+          <div class="legend-gradient" id="legendGradient"></div>
+          <div class="legend-labels"><span>Min</span><span>50%</span><span>Peak</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('weldCanvas');
+    const ctx = canvas.getContext('2d');
+    const csCanvas = document.getElementById('crossSectionCanvas');
+    const csCtx = csCanvas.getContext('2d');
+
+    const SPOT_SIZE_MM = 0.30; // Constant focal beam diameter
+
+    const inputs = {
+      pattern: document.getElementById('pattern'),
+      amplitude: document.getElementById('amplitude'),
+      numAmplitude: document.getElementById('num-amplitude'),
+      frequency: document.getElementById('frequency'),
+      numFrequency: document.getElementById('num-frequency'),
+      modType: document.getElementById('modType'),
+      modDepth: document.getElementById('modDepth'),
+      numModDepth: document.getElementById('num-modDepth'),
+      modPhase: document.getElementById('modPhase'),
+      numModPhase: document.getElementById('num-modPhase'),
+      power: document.getElementById('power'),
+      numPower: document.getElementById('num-power'),
+      speed: document.getElementById('speed'),
+      numSpeed: document.getElementById('num-speed'),
+      colorPalette: document.getElementById('colorPalette')
+    };
+
+    const displays = {
+      heatinput: document.getElementById('metric-heatinput'),
+      pitch: document.getElementById('metric-pitch'),
+      overlap: document.getElementById('metric-overlap'),
+      modRange: document.getElementById('metric-modRange'),
+      legend: document.getElementById('legendGradient')
+    };
+
+    const btnRun = document.getElementById('btn-run');
+    const btnReset = document.getElementById('btn-reset');
+
+    let isRunning = false;
+    let animationId = null;
+    let currentTime = 0;
+    const viewWidthMM = 30;
+    let scale = 1;
+
+    // Heat Accumulation Grid (Top-down)
+    const gridResX = 800, gridResY = 1000;
+    const energyGrid = new Float32Array(gridResX * gridResY);
+    const offCanvas = document.createElement('canvas'); offCanvas.width = gridResX; offCanvas.height = gridResY;
+    const offCtx = offCanvas.getContext('2d');
+
+    // Color Filters / Palettes
+    const colorPalettes = {
+      ironbow: [
+        { r: 10, g: 15, b: 40 },
+        { r: 70, g: 20, b: 120 },
+        { r: 180, g: 30, b: 100 },
+        { r: 230, g: 90, b: 20 },
+        { r: 255, g: 200, b: 0 },
+        { r: 255, g: 255, b: 255 }
+      ],
+      inferno: [
+        { r: 0, g: 0, b: 4 },
+        { r: 87, g: 16, b: 110 },
+        { r: 187, g: 55, b: 84 },
+        { r: 249, g: 142, b: 9 },
+        { r: 252, g: 255, b: 164 }
+      ],
+      viridis: [
+        { r: 68, g: 1, b: 84 },
+        { r: 59, g: 82, b: 139 },
+        { r: 33, g: 145, b: 140 },
+        { r: 94, g: 201, b: 98 },
+        { r: 253, g: 231, b: 37 }
+      ],
+      jet: [
+        { r: 0, g: 0, b: 143 },
+        { r: 0, g: 128, b: 255 },
+        { r: 0, g: 255, b: 128 },
+        { r: 255, g: 255, b: 0 },
+        { r: 255, g: 0, b: 0 }
+      ],
+      plasma: [
+        { r: 13, g: 8, b: 135 },
+        { r: 126, g: 3, b: 168 },
+        { r: 204, g: 71, b: 120 },
+        { r: 248, g: 149, b: 64 },
+        { r: 240, g: 249, b: 33 }
+      ],
+      grayscale: [
+        { r: 0, g: 0, b: 0 },
+        { r: 80, g: 80, b: 80 },
+        { r: 160, g: 160, b: 160 },
+        { r: 255, g: 255, b: 255 }
+      ]
+    };
+
+    function getActivePalette() {
+      const selected = inputs.colorPalette.value;
+      return colorPalettes[selected] || colorPalettes.ironbow;
+    }
+
+    // Bi-directional slider <-> numeric input synchronization
+    function syncInputPair(sliderEl, numEl) {
+      sliderEl.addEventListener('input', () => {
+        numEl.value = sliderEl.value;
+        onParamChange();
+      });
+      numEl.addEventListener('input', () => {
+        sliderEl.value = numEl.value;
+        onParamChange();
+      });
+      numEl.addEventListener('change', () => {
+        let val = parseFloat(numEl.value);
+        const min = parseFloat(sliderEl.min);
+        const max = parseFloat(sliderEl.max);
+        if (isNaN(val)) val = parseFloat(sliderEl.value);
+        val = Math.max(min, Math.min(max, val));
+        numEl.value = val;
+        sliderEl.value = val;
+        onParamChange();
+      });
+    }
+
+    syncInputPair(inputs.amplitude, inputs.numAmplitude);
+    syncInputPair(inputs.frequency, inputs.numFrequency);
+    syncInputPair(inputs.modDepth, inputs.numModDepth);
+    syncInputPair(inputs.modPhase, inputs.numModPhase);
+    syncInputPair(inputs.power, inputs.numPower);
+    syncInputPair(inputs.speed, inputs.numSpeed);
+
+    inputs.pattern.addEventListener('change', onParamChange);
+    inputs.modType.addEventListener('change', onParamChange);
+    inputs.colorPalette.addEventListener('change', onParamChange);
+
+    function onParamChange() {
+      updateMetrics();
+      if (!isRunning) renderAll();
+    }
+
+    function resizeCanvas() {
+      const container = canvas.parentElement;
+      canvas.width = container.clientWidth; canvas.height = container.clientHeight;
+      scale = canvas.width / viewWidthMM;
+      renderAll();
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    function samplePalette(normVal) {
+      const activePalette = getActivePalette();
+      normVal = Math.max(0, Math.min(1, normVal));
+      const scaled = normVal * (activePalette.length - 1);
+      const idx = Math.floor(scaled);
+      const frac = scaled - idx;
+      if (idx >= activePalette.length - 1) return activePalette[activePalette.length - 1];
+      const c1 = activePalette[idx], c2 = activePalette[idx + 1];
+      return { r: Math.round(c1.r + (c2.r - c1.r) * frac), g: Math.round(c1.g + (c2.g - c1.g) * frac), b: Math.round(c1.b + (c2.b - c1.b) * frac) };
+    }
+
+    function updateMetrics() {
+      const P = parseFloat(inputs.power.value), v = parseFloat(inputs.speed.value), f = parseFloat(inputs.frequency.value);
+      const M = parseFloat(inputs.modDepth.value) / 100;
+      
+      displays.heatinput.innerText = (P / v).toFixed(1) + ' J/mm';
+      displays.pitch.innerText = (v / f).toFixed(2) + ' mm';
+      displays.overlap.innerText = Math.max(0, Math.min(100, ((SPOT_SIZE_MM - (v/f)) / SPOT_SIZE_MM) * 100)).toFixed(1) + '%';
+      
+      if (inputs.modType.value === 'none') {
+        displays.modRange.innerText = P + ' W';
+      } else {
+        const pMin = Math.round(P * (1 - M)), pMax = Math.round(P * (1 + M));
+        displays.modRange.innerText = `${pMin} - ${pMax} W`;
+      }
+
+      const activePalette = getActivePalette();
+      const cssGradients = activePalette.map(c => `rgb(${c.r}, ${c.g}, ${c.b})`).join(', ');
+      displays.legend.style.background = `linear-gradient(to right, ${cssGradients})`;
+    }
+
+    function getWobbleState(t) {
+      const freq = parseFloat(inputs.frequency.value), amp = parseFloat(inputs.amplitude.value), pattern = inputs.pattern.value;
+      const modType = inputs.modType.value, modDepth = parseFloat(inputs.modDepth.value) / 100, modPhaseRad = parseFloat(inputs.modPhase.value) * Math.PI / 180;
+      
+      const omega = 2 * Math.PI * freq * t;
+      let dx = 0, dy = 0, powerMult = 1.0;
+
+      // 1. Wobble Kinematics
+      switch (pattern) {
+        case 'circle': dx = (amp / 2) * Math.cos(omega); dy = (amp / 2) * Math.sin(omega); break;
+        case 'figure8': dx = (amp / 2) * Math.sin(2 * omega); dy = (amp / 2) * Math.sin(omega); break;
+        case 'infinity': dx = (amp / 2) * Math.sin(omega); dy = (amp / 2) * Math.sin(2 * omega); break;
+        case 'sine': dx = 0; dy = (amp / 2) * Math.sin(omega); break;
+      }
+
+      // 2. Power Modulation
+      if (modType === 'phase') {
+        const modOmega = 2 * omega + modPhaseRad; 
+        powerMult = 1.0 + modDepth * Math.cos(modOmega);
+      }
+
+      return { dx, dy, powerMult };
+    }
+
+    function calculatePath(maxTime) {
+      const v = parseFloat(inputs.speed.value), freq = parseFloat(inputs.frequency.value);
+      const dt = 1 / (freq * 100); // Sample rate
+      const points = []; const startX = 3;
+
+      for (let t = 0; t <= maxTime; t += dt) {
+        const linearX = startX + v * t;
+        const state = getWobbleState(t);
+        points.push({ x: linearX + state.dx, y: state.dy, p: state.powerMult });
+        if (linearX > viewWidthMM - 3) break;
+      }
+      return points;
+    }
+
+    function renderAll() {
+      // --- A. Main Top-Down Heatmap Canvas ---
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      energyGrid.fill(0);
+      const centerY_MM = (canvas.height / scale) / 2;
+      const points = calculatePath(currentTime);
+      const spotRadiusGridX = ((SPOT_SIZE_MM / 2) / viewWidthMM) * gridResX;
+      let maxEnergy = 0;
+
+      if (points.length > 0) {
+        const basePower = parseFloat(inputs.power.value);
+        points.forEach(p => {
+          const gx = (p.x / viewWidthMM) * gridResX;
+          const gy = ((centerY_MM + p.y) / (canvas.height / scale)) * gridResY;
+          const rSq = spotRadiusGridX * spotRadiusGridX;
+          const powerEff = basePower * p.p;
+
+          const bounds = {
+            x0: Math.max(0, Math.floor(gx - spotRadiusGridX * 2.5)),
+            x1: Math.min(gridResX - 1, Math.ceil(gx + spotRadiusGridX * 2.5)),
+            y0: Math.max(0, Math.floor(gy - spotRadiusGridX * 2.5)),
+            y1: Math.min(gridResY - 1, Math.ceil(gy + spotRadiusGridX * 2.5))
+          };
+
+          for (let y = bounds.y0; y <= bounds.y1; y++) {
+            for (let x = bounds.x0; x <= bounds.x1; x++) {
+              const distSq = (x-gx)**2 + (y-gy)**2;
+              if (distSq <= rSq * 3.0) {
+                const deposit = powerEff * Math.exp(-3 * distSq / rSq);
+                const idx = y * gridResX + x;
+                energyGrid[idx] += deposit;
+                if (energyGrid[idx] > maxEnergy) maxEnergy = energyGrid[idx];
+              }
+            }
+          }
+        });
+      }
+
+      // Grid Rendering via Palette Sampling
+      const imgData = offCtx.createImageData(gridResX, gridResY);
+      for (let i = 0; i < energyGrid.length; i++) {
+        const pIdx = i * 4;
+        const norm = maxEnergy > 0 ? energyGrid[i] / maxEnergy : 0;
+        if (energyGrid[i] <= 0) {
+          imgData.data[pIdx]=5; imgData.data[pIdx+1]=6; imgData.data[pIdx+2]=8; imgData.data[pIdx+3]=255;
+        } else {
+          const c = samplePalette(Math.pow(norm, 0.85));
+          imgData.data[pIdx]=c.r; imgData.data[pIdx+1]=c.g; imgData.data[pIdx+2]=c.b; imgData.data[pIdx+3]=255;
+        }
+      }
+      offCtx.putImageData(imgData, 0, 0);
+      ctx.drawImage(offCanvas, 0, 0, canvas.width, canvas.height);
+
+      // Overlays (Seam Centerline & Grid Ticks)
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, canvas.height/2); ctx.lineTo(canvas.width, canvas.height/2); ctx.stroke();
+      for (let xMM = 0; xMM <= viewWidthMM; xMM += 5) { const xPx = xMM * scale; ctx.beginPath(); ctx.moveTo(xPx, 0); ctx.lineTo(xPx, canvas.height); ctx.stroke(); }
+      
+      if (isRunning && points.length > 0) {
+        const head = points[points.length - 1];
+        const hx = head.x * scale, hy = canvas.height/2 + (head.y * scale), srPx = (SPOT_SIZE_MM / 2) * scale;
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hx, hy, Math.max(3, srPx), 0, Math.PI*2); ctx.stroke();
+        ctx.fillStyle = head.p > 1.0 ? '#f87171' : (head.p < 1.0 ? '#60a5fa' : '#ffffff'); ctx.beginPath(); ctx.arc(hx, hy, 2.5, 0, Math.PI*2); ctx.fill();
+      }
+
+      // --- B. Cross-Section Canvas ---
+      renderCrossSection(maxEnergy);
+    }
+
+    function renderCrossSection(topMaxEnergy) {
+      csCtx.fillStyle = '#050608';
+      csCtx.fillRect(0, 0, csCanvas.width, csCanvas.height);
+
+      const W = csCanvas.width, H = csCanvas.height;
+      const centerY = H * 0.15; // Surface plane
+      const maxAmpMM = 6.0;
+
+      // Integrate energy along seam direction to get transverse profile
+      const transverseProfile = new Float32Array(gridResY);
+      const startX = Math.floor(gridResX * 0.4), endX = Math.floor(gridResX * 0.7);
+      let profileMax = 0;
+
+      for (let y = 0; y < gridResY; y++) {
+        let sum = 0;
+        for (let x = startX; x < endX; x++) { sum += energyGrid[y * gridResX + x]; }
+        transverseProfile[y] = sum / (endX - startX);
+        if (transverseProfile[y] > profileMax) profileMax = transverseProfile[y];
+      }
+
+      if (profileMax === 0) return;
+
+      const ampScale = W / (maxAmpMM + SPOT_SIZE_MM); 
+      const startYGrid = Math.floor(gridResY * 0.1), endYGrid = Math.floor(gridResY * 0.9);
+      const maxPenetrationPx = H * 0.75;
+
+      csCtx.beginPath();
+      for (let yG = startYGrid; yG <= endYGrid; yG++) {
+        const yMM = (((yG / gridResY) * (canvas.height / scale)) - ((canvas.height / scale) / 2));
+        const xPx = W/2 + yMM * ampScale;
+
+        const baseJmm = parseFloat(inputs.power.value) / parseFloat(inputs.speed.value);
+        const baseDepthNorm = Math.min(1, baseJmm / 150);
+
+        const normLocalHeat = transverseProfile[yG] / topMaxEnergy;
+        const totalDepthNorm = 0.2 * baseDepthNorm + 0.8 * Math.pow(normLocalHeat, 1.2);
+
+        const yPx = centerY + totalDepthNorm * maxPenetrationPx;
+
+        if (yG === startYGrid) csCtx.moveTo(xPx, yPx);
+        else csCtx.lineTo(xPx, yPx);
+      }
+      
+      csCtx.lineTo(W, H); csCtx.lineTo(0, H); csCtx.closePath();
+
+      // Dynamic Fusion Zone Gradient Fill based on active palette
+      const activePalette = getActivePalette();
+      const grad = csCtx.createLinearGradient(0, centerY, 0, H);
+      const c0 = activePalette[activePalette.length - 1];
+      const c1 = activePalette[Math.floor(activePalette.length / 2)];
+      const c2 = activePalette[0];
+
+      grad.addColorStop(0, `rgb(${c0.r}, ${c0.g}, ${c0.b})`);
+      grad.addColorStop(0.5, `rgb(${c1.r}, ${c1.g}, ${c1.b})`);
+      grad.addColorStop(1, `rgb(${c2.r}, ${c2.g}, ${c2.b})`);
+
+      csCtx.fillStyle = grad;
+      csCtx.fill();
+      
+      // Outline for keyhole/fusion boundary
+      csCtx.strokeStyle = 'rgba(255, 255, 255, 0.7)'; csCtx.lineWidth = 1.5; csCtx.stroke();
+
+      // Surface Line
+      csCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)'; csCtx.lineWidth = 1; csCtx.beginPath(); csCtx.moveTo(0, centerY); csCtx.lineTo(W, centerY); csCtx.stroke();
+    }
+
+    function animate() {
+      if (!isRunning) return;
+      currentTime += 0.008;
+      const v = parseFloat(inputs.speed.value);
+      if (currentTime * v >= viewWidthMM - 6) { currentTime = (viewWidthMM - 6) / v; isRunning = false; btnRun.innerText = 'Re-Run Weld'; }
+      renderAll();
+      if (isRunning) animationId = requestAnimationFrame(animate);
+    }
+
+    btnRun.addEventListener('click', () => {
+      if (currentTime * parseFloat(inputs.speed.value) >= viewWidthMM - 6) currentTime = 0;
+      isRunning = !isRunning;
+      btnRun.innerText = isRunning ? 'Pause' : 'Resume';
+      if (isRunning) animate();
+      else if (animationId) cancelAnimationFrame(animationId);
+    });
+
+    btnReset.addEventListener('click', () => {
+      isRunning = false;
+      if (animationId) cancelAnimationFrame(animationId);
+      currentTime = 0;
+      btnRun.innerText = 'Run Weld';
+
+      // Reset values
+      inputs.amplitude.value = 2.0; inputs.numAmplitude.value = 2.0;
+      inputs.frequency.value = 60; inputs.numFrequency.value = 60;
+      inputs.modType.value = 'none';
+      inputs.modDepth.value = 0; inputs.numModDepth.value = 0;
+      inputs.modPhase.value = 0; inputs.numModPhase.value = 0;
+      inputs.power.value = 1500; inputs.numPower.value = 1500;
+      inputs.speed.value = 25; inputs.numSpeed.value = 25;
+      inputs.pattern.value = 'circle';
+      inputs.colorPalette.value = 'ironbow';
+
+      onParamChange();
+    });
+
+    resizeCanvas();
+    updateMetrics();
+    renderAll();
+  </script>
+</body>
+</html>

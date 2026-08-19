@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 from matplotlib import cm
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  registers the '3d' projection
 
@@ -49,7 +50,6 @@ from weldsim.weld_path import (
     WobbleParams,
     beam_trajectory,
     heat_signature,
-    wobble_animation_gif,
 )
 
 
@@ -60,6 +60,83 @@ def _show(fig: plt.Figure | go.Figure) -> None:
     else:
         st.pyplot(fig)
         plt.close(fig)
+
+
+def _wobble_calculator_html(
+    power_w: float,
+    speed_m_s: float,
+    wobble: WobbleParams,
+    sigma_m: float,
+    view_width_mm: float = 30.0,
+) -> str:
+    """Load the standalone wobble calculator and seed it with current setup values."""
+    html_path = Path(__file__).with_name("wobble_calculator.html")
+    html = html_path.read_text(encoding="utf-8")
+
+    spot_size_mm = 2.0 * sigma_m * 1e3
+    view_width_mm = max(view_width_mm, 30.0)
+
+    html = html.replace(
+        "const SPOT_SIZE_MM = 0.30;",
+        f"const SPOT_SIZE_MM = {spot_size_mm:.4f};",
+    )
+    html = html.replace(
+        "const viewWidthMM = 30;",
+        f"const viewWidthMM = {view_width_mm:.2f};",
+    )
+
+    pattern = wobble.pattern.lower()
+    pattern_map = {
+        "circle": "circle",
+        "line": "sine",
+        "sine": "sine",
+        "figure8": "figure8",
+        "figure_8": "figure8",
+        "infinity": "infinity",
+        "lemniscate": "infinity",
+    }
+    html_pattern = pattern_map.get(pattern, "circle")
+
+    amp_mm = wobble.amplitude * 2.0 * 1e3
+    freq = wobble.frequency
+    if freq <= 0.0:
+        html_pattern = "sine"
+        freq = 5.0
+        amp_mm = 0.0
+    else:
+        freq = max(freq, 5.0)
+
+    speed_mm_s = speed_m_s * 1e3
+    amp_mm = max(0.0, min(amp_mm, 10.0))
+    freq = min(freq, 50000.0)
+    speed_mm_s = max(1.0, min(speed_mm_s, 300.0))
+
+    init_script = f"""
+<script>
+(function() {{
+  function sync(id, numId, value) {{
+    const el = document.getElementById(id);
+    const num = document.getElementById(numId);
+    if (el) el.value = value;
+    if (num) num.value = value;
+  }}
+  sync('amplitude', 'num-amplitude', {amp_mm:.4f});
+  sync('frequency', 'num-frequency', {freq:.1f});
+  sync('power', 'num-power', {power_w:.1f});
+  sync('speed', 'num-speed', {speed_mm_s:.2f});
+  const patternEl = document.getElementById('pattern');
+  if (patternEl) patternEl.value = {html_pattern!r};
+  const modEl = document.getElementById('modType');
+  if (modEl) modEl.value = 'none';
+  const palEl = document.getElementById('colorPalette');
+  if (palEl) palEl.value = 'ironbow';
+  if (typeof onParamChange === 'function') onParamChange();
+}})();
+</script>
+"""
+
+    html = html.replace("</body>", init_script + "\n</body>")
+    return html
 
 
 def _plot_temperature_2d(x: np.ndarray, y: np.ndarray, T: np.ndarray) -> plt.Figure:
@@ -600,19 +677,19 @@ def _load_preset_into_setup(preset: Preset, top_mm: float, bottom_mm: float) -> 
     st.session_state["efficiency"] = float(preset.efficiency)
     st.session_state["speed"] = float(preset.speed)
     st.session_state["beam_radius"] = float(preset.sigma * 1e6)
-    st.session_state["start_x"] = float(preset.start[0])
-    st.session_state["start_y"] = float(preset.start[1])
-    st.session_state["end_x"] = float(preset.end[0])
-    st.session_state["end_y"] = float(preset.end[1])
+    st.session_state["start_x_mm"] = float(preset.start[0]) * 1e3
+    st.session_state["start_y_mm"] = float(preset.start[1]) * 1e3
+    st.session_state["end_x_mm"] = float(preset.end[0]) * 1e3
+    st.session_state["end_y_mm"] = float(preset.end[1]) * 1e3
     st.session_state["wobble_amp"] = float(preset.wobble_amp_um)
     st.session_state["wobble_freq"] = float(preset.wobble_freq_hz)
     st.session_state["wobble_pattern"] = preset.wobble_pattern
-    st.session_state["Lx"] = float(preset.Lx)
-    st.session_state["Ly"] = float(preset.Ly)
+    st.session_state["Lx_mm"] = float(preset.Lx) * 1e3
+    st.session_state["Ly_mm"] = float(preset.Ly) * 1e3
 
     total_mm = top_mm + bottom_mm
     st.session_state["plate_thickness_mm"] = float(total_mm)
-    st.session_state["T1"] = float(total_mm / 1e3)
+    st.session_state["T1_mm"] = float(total_mm)
     st.session_state["top_thickness_mm"] = float(top_mm)
 
     st.session_state["solver"] = preset.solver
@@ -634,8 +711,8 @@ def _load_preset_into_setup(preset: Preset, top_mm: float, bottom_mm: float) -> 
             (preset.start[0] + preset.end[0]) / 2.0,
             (preset.start[1] + preset.end[1]) / 2.0,
         )
-    st.session_state["probe_x"] = float(probe[0])
-    st.session_state["probe_y"] = float(probe[1])
+    st.session_state["probe_x_mm"] = float(probe[0]) * 1e3
+    st.session_state["probe_y_mm"] = float(probe[1]) * 1e3
 
 
 def _run_preset(preset: Preset) -> None:
@@ -708,12 +785,15 @@ def _run_preset(preset: Preset) -> None:
     st.session_state["y"] = y
     st.session_state["Lx"] = config.Lx
     st.session_state["Ly"] = config.Ly
+    st.session_state["Lx_mm"] = config.Lx * 1e3
+    st.session_state["Ly_mm"] = config.Ly * 1e3
     st.session_state["weld"] = weld
     st.session_state["path"] = path
     st.session_state["wobble"] = wobble
     st.session_state["material"] = material
     st.session_state["t_end"] = config.t_end
     st.session_state["T1"] = config.T1
+    st.session_state["T1_mm"] = config.T1 * 1e3
 
     st.session_state["thermal_result"] = result
     st.session_state["weld_report"] = report
@@ -849,11 +929,13 @@ def _page_thermal_and_wobble():
         st.subheader("Weld path")
         c3, c4 = st.columns(2)
         with c3:
-            x0 = st.number_input("Start x (m)", 0.0, 0.5, 0.01, 0.001, key="start_x")
-            y0 = st.number_input("Start y (m)", 0.0, 0.2, 0.025, 0.001, key="start_y")
+            x0_mm = st.number_input("Start x (mm)", 0.0, 500.0, 10.0, 0.1, key="start_x_mm")
+            y0_mm = st.number_input("Start y (mm)", 0.0, 200.0, 25.0, 0.1, key="start_y_mm")
         with c4:
-            x1 = st.number_input("End x (m)", 0.0, 0.5, 0.07, 0.001, key="end_x")
-            y1 = st.number_input("End y (m)", 0.0, 0.2, 0.025, 0.001, key="end_y")
+            x1_mm = st.number_input("End x (mm)", 0.0, 500.0, 70.0, 0.1, key="end_x_mm")
+            y1_mm = st.number_input("End y (mm)", 0.0, 200.0, 25.0, 0.1, key="end_y_mm")
+        x0, y0 = x0_mm * 1e-3, y0_mm * 1e-3
+        x1, y1 = x1_mm * 1e-3, y1_mm * 1e-3
         length = math.hypot(x1 - x0, y1 - y0)
         if length <= 0.0:
             st.error("The weld path has zero length. Move the end point away from the start.")
@@ -886,14 +968,14 @@ def _page_thermal_and_wobble():
         st.subheader("Plate & mesh")
         c8, c9 = st.columns(2)
         with c8:
-            Lx = st.number_input("Plate length Lx (m)", 0.01, 0.5, 0.08, 0.01, key="Lx")
-            Ly = st.number_input("Plate width Ly (m)", 0.01, 0.2, 0.05, 0.001, key="Ly")
+            Lx_mm = st.number_input("Plate length Lx (mm)", 1.0, 500.0, 80.0, 1.0, key="Lx_mm")
+            Ly_mm = st.number_input("Plate width Ly (mm)", 1.0, 200.0, 50.0, 1.0, key="Ly_mm")
+            Lx, Ly = Lx_mm * 1e-3, Ly_mm * 1e-3
             plate_thickness = st.number_input(
                 "Plate thickness (mm)", 0.1, 50.0, 3.0, 0.1, key="plate_thickness_mm"
             )
-            T1 = st.number_input(
-                "Heat-spreading depth h (m)", 0.0005, 0.05, 0.003, 0.0005, key="T1"
-            )
+            T1_mm = st.number_input("Heat-spreading depth h (mm)", 0.1, 50.0, 3.0, 0.1, key="T1_mm")
+            T1 = T1_mm * 1e-3
             top_thickness_mm = st.number_input(
                 "Top sheet thickness (mm) — 0 for single plate",
                 0.0,
@@ -961,13 +1043,14 @@ def _page_thermal_and_wobble():
         st.caption("Defaults to the mid-point of the weld path, where the torch passes over it.")
         c10, c11 = st.columns(2)
         with c10:
-            px = st.number_input(
-                "Probe x (m)", 0.0, Lx, min((x0 + x1) / 2, Lx), 0.001, key="probe_x"
+            px_mm = st.number_input(
+                "Probe x (mm)", 0.0, Lx_mm, (x0_mm + x1_mm) / 2.0, 0.1, key="probe_x_mm"
             )
         with c11:
-            py = st.number_input(
-                "Probe y (m)", 0.0, Ly, min((y0 + y1) / 2, Ly), 0.001, key="probe_y"
+            py_mm = st.number_input(
+                "Probe y (mm)", 0.0, Ly_mm, (y0_mm + y1_mm) / 2.0, 0.1, key="probe_y_mm"
             )
+        px, py = px_mm * 1e-3, py_mm * 1e-3
 
         weld = WeldParams(
             power=power,
@@ -998,11 +1081,14 @@ def _page_thermal_and_wobble():
         st.session_state["material"] = material
         st.session_state["Lx"] = Lx
         st.session_state["Ly"] = Ly
+        st.session_state["Lx_mm"] = Lx_mm
+        st.session_state["Ly_mm"] = Ly_mm
         st.session_state["nx"] = nx
         st.session_state["ny"] = ny
         st.session_state["t_end"] = t_end
         st.session_state["dt"] = dt
         st.session_state["T1"] = T1
+        st.session_state["T1_mm"] = T1_mm
 
         if preview_pressed or run_pressed:
             with st.spinner("Computing beam path & heat signature..."):
@@ -1091,59 +1177,24 @@ def _page_thermal_and_wobble():
                 st.session_state["thermal_x1"] = x1
                 st.session_state["thermal_y1"] = y1
 
-    # --- Wobble tab (always rendered, data from session state) ---
+    # --- Wobble tab: embedded standalone wobble calculator ---
     with tab_wobble:
-        if "Q" in st.session_state:
-            Q = st.session_state["Q"]
-            x_traj = st.session_state["x_traj"]
-            y_traj = st.session_state["y_traj"]
-            x = st.session_state["x"]
-            y = st.session_state["y"]
-            Lx = st.session_state["Lx"]
-            Ly = st.session_state["Ly"]
-            _show(plots.plot_beam_path(x_traj, y_traj, Lx, Ly))
-            _show(plots.plot_heat_signature(x, y, Q, x_traj, y_traj))
-
-            with st.expander("Run animation", expanded=True):
-                anim_col, anim_params = st.columns([1, 3])
-                with anim_col:
-                    run_anim = st.button("Run animation", type="secondary", width="stretch")
-                with anim_params:
-                    fps = st.slider("FPS", 1, 30, 10, 1)
-                    anim_dt = st.slider("Anim time step (s)", 0.02, 0.2, 0.1, 0.01)
-                    trail = st.slider("Trail length (s)", 0.01, 0.2, 0.05, 0.01)
-                if run_anim or "wobble_gif" in st.session_state:
-                    if run_anim:
-                        with st.spinner("Rendering animation..."):
-                            # Fixed coarse grid for fast, accurate wobble rendering
-                            x_anim = np.linspace(0, Lx, 41)
-                            y_anim = np.linspace(0, Ly, 21)
-                            t_end_anim = min(st.session_state.get("t_end", 6.0), path.duration)
-                            gif = wobble_animation_gif(
-                                path=path,
-                                wobble=wobble,
-                                power=st.session_state["weld"].power,
-                                efficiency=st.session_state["weld"].efficiency,
-                                sigma=st.session_state["weld"].sigma,
-                                h=st.session_state["T1"],
-                                x=x_anim,
-                                y=y_anim,
-                                t_end=t_end_anim,
-                                frame_dt=anim_dt,
-                                trail_time=trail,
-                                heat_dt=sampling_window(trail, wobble, 0.002)[2],
-                                fps=fps,
-                                gif_width=400,
-                            )
-                            st.session_state["wobble_gif"] = gif
-                    st.image(
-                        st.session_state["wobble_gif"],
-                        caption="Wobbled weld animation — brighter = more dwell time",
-                    )
+        weld_wobble = st.session_state.get("weld")
+        wobble_state = st.session_state.get("wobble")
+        if weld_wobble is not None and wobble_state is not None:
+            view_width = st.session_state.get("Lx_mm", 80.0) + 6.0
+            html = _wobble_calculator_html(
+                power_w=weld_wobble.power,
+                speed_m_s=weld_wobble.speed,
+                wobble=wobble_state,
+                sigma_m=weld_wobble.sigma,
+                view_width_mm=view_width,
+            )
+            components.html(html, height=850, scrolling=True)
         else:
             st.info(
-                "Click **Go (draw heat signature)** on the **Setup** tab to generate "
-                "the wobble preview."
+                "Set power, speed and wobble on the **Setup** tab and click "
+                "**Run** to load the wobble calculator."
             )
 
     # --- Weld result tab: what the parameters actually produce ---
