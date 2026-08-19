@@ -9,6 +9,7 @@ import math
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -1041,15 +1042,35 @@ def _page_thermal_and_wobble():
 
         st.subheader("Thermal probe")
         st.caption("Defaults to the mid-point of the weld path, where the torch passes over it.")
+        px_default = min((x0_mm + x1_mm) / 2.0, Lx_mm)
+        py_default = min((y0_mm + y1_mm) / 2.0, Ly_mm)
+
+        px_kwargs: dict[str, Any] = {
+            "min_value": 0.0,
+            "max_value": Lx_mm,
+            "step": 0.1,
+            "key": "probe_x_mm",
+        }
+        if "probe_x_mm" in st.session_state:
+            st.session_state["probe_x_mm"] = min(st.session_state["probe_x_mm"], Lx_mm)
+        else:
+            px_kwargs["value"] = px_default
+        py_kwargs: dict[str, Any] = {
+            "min_value": 0.0,
+            "max_value": Ly_mm,
+            "step": 0.1,
+            "key": "probe_y_mm",
+        }
+        if "probe_y_mm" in st.session_state:
+            st.session_state["probe_y_mm"] = min(st.session_state["probe_y_mm"], Ly_mm)
+        else:
+            py_kwargs["value"] = py_default
+
         c10, c11 = st.columns(2)
         with c10:
-            px_mm = st.number_input(
-                "Probe x (mm)", 0.0, Lx_mm, (x0_mm + x1_mm) / 2.0, 0.1, key="probe_x_mm"
-            )
+            px_mm = st.number_input("Probe x (mm)", **px_kwargs)
         with c11:
-            py_mm = st.number_input(
-                "Probe y (mm)", 0.0, Ly_mm, (y0_mm + y1_mm) / 2.0, 0.1, key="probe_y_mm"
-            )
+            py_mm = st.number_input("Probe y (mm)", **py_kwargs)
         px, py = px_mm * 1e-3, py_mm * 1e-3
 
         weld = WeldParams(
@@ -1079,16 +1100,6 @@ def _page_thermal_and_wobble():
         st.session_state["path"] = path
         st.session_state["wobble"] = wobble
         st.session_state["material"] = material
-        st.session_state["Lx"] = Lx
-        st.session_state["Ly"] = Ly
-        st.session_state["Lx_mm"] = Lx_mm
-        st.session_state["Ly_mm"] = Ly_mm
-        st.session_state["nx"] = nx
-        st.session_state["ny"] = ny
-        st.session_state["t_end"] = t_end
-        st.session_state["dt"] = dt
-        st.session_state["T1"] = T1
-        st.session_state["T1_mm"] = T1_mm
 
         if preview_pressed or run_pressed:
             with st.spinner("Computing beam path & heat signature..."):
