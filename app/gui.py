@@ -678,10 +678,36 @@ def _load_preset_into_setup(preset: Preset, top_mm: float, bottom_mm: float) -> 
     st.session_state["efficiency"] = float(preset.efficiency)
     st.session_state["speed"] = float(preset.speed)
     st.session_state["spot_size_mm"] = float(preset.sigma * 2e3)
-    st.session_state["start_x_mm"] = float(preset.start[0]) * 1e3
-    st.session_state["start_y_mm"] = float(preset.start[1]) * 1e3
-    st.session_state["end_x_mm"] = float(preset.end[0]) * 1e3
-    st.session_state["end_y_mm"] = float(preset.end[1]) * 1e3
+    st.session_state["path_type"] = preset.path_type
+    st.session_state["center_x_mm"] = float(preset.center[0]) * 1e3
+    st.session_state["center_y_mm"] = float(preset.center[1]) * 1e3
+    st.session_state["radius_mm"] = float(preset.radius) * 1e3
+    st.session_state["r_start_mm"] = float(preset.r_start) * 1e3
+    st.session_state["r_end_mm"] = float(preset.r_end) * 1e3
+    st.session_state["turns_path"] = float(preset.turns)
+
+    if preset.path_type == "circle":
+        _preset_path: WeldPath = WeldPath.circle(
+            center=preset.center,
+            radius=preset.radius,
+            speed=preset.speed,
+            turns=preset.turns,
+        )
+    elif preset.path_type == "spiral":
+        _preset_path = WeldPath.spiral(
+            center=preset.center,
+            r_start=preset.r_start,
+            r_end=preset.r_end,
+            speed=preset.speed,
+            turns=preset.turns,
+        )
+    else:
+        _preset_path = WeldPath(start=preset.start, end=preset.end, speed=preset.speed)
+
+    st.session_state["start_x_mm"] = float(_preset_path.start[0]) * 1e3
+    st.session_state["start_y_mm"] = float(_preset_path.start[1]) * 1e3
+    st.session_state["end_x_mm"] = float(_preset_path.end[0]) * 1e3
+    st.session_state["end_y_mm"] = float(_preset_path.end[1]) * 1e3
     st.session_state["wobble_amp"] = float(preset.wobble_amp_um)
     st.session_state["wobble_freq"] = float(preset.wobble_freq_hz)
     st.session_state["wobble_pattern"] = preset.wobble_pattern
@@ -701,17 +727,13 @@ def _load_preset_into_setup(preset: Preset, top_mm: float, bottom_mm: float) -> 
     if preset.t_end is not None:
         t_end = float(preset.t_end)
     else:
-        length = math.hypot(preset.end[0] - preset.start[0], preset.end[1] - preset.start[1])
-        t_end = min(max(1.3 * length / preset.speed, 0.1), 50.0)
+        t_end = min(max(1.3 * _preset_path.duration, 0.1), 50.0)
     st.session_state["t_end"] = t_end
     st.session_state["dt"] = float(preset.dt)
 
     probe = preset.probe
     if probe is None:
-        probe = (
-            (preset.start[0] + preset.end[0]) / 2.0,
-            (preset.start[1] + preset.end[1]) / 2.0,
-        )
+        probe = _preset_path.nominal_position(_preset_path.duration / 2.0)
     st.session_state["probe_x_mm"] = float(probe[0]) * 1e3
     st.session_state["probe_y_mm"] = float(probe[1]) * 1e3
 
@@ -795,6 +817,18 @@ def _run_preset(preset: Preset) -> None:
     st.session_state["t_end"] = config.t_end
     st.session_state["T1"] = config.T1
     st.session_state["T1_mm"] = config.T1 * 1e3
+
+    st.session_state["path_type"] = preset.path_type
+    st.session_state["center_x_mm"] = float(preset.center[0]) * 1e3
+    st.session_state["center_y_mm"] = float(preset.center[1]) * 1e3
+    st.session_state["radius_mm"] = float(preset.radius) * 1e3
+    st.session_state["r_start_mm"] = float(preset.r_start) * 1e3
+    st.session_state["r_end_mm"] = float(preset.r_end) * 1e3
+    st.session_state["turns_path"] = float(preset.turns)
+    st.session_state["start_x_mm"] = float(path.start[0]) * 1e3
+    st.session_state["start_y_mm"] = float(path.start[1]) * 1e3
+    st.session_state["end_x_mm"] = float(path.end[0]) * 1e3
+    st.session_state["end_y_mm"] = float(path.end[1]) * 1e3
 
     st.session_state["thermal_result"] = result
     st.session_state["weld_report"] = report
@@ -928,20 +962,65 @@ def _page_thermal_and_wobble():
             sigma = spot_size_mm * 1e-3 / 2.0
 
         st.subheader("Weld path")
-        c3, c4 = st.columns(2)
-        with c3:
-            x0_mm = st.number_input("Start x (mm)", 0.0, 500.0, 10.0, 0.1, key="start_x_mm")
-            y0_mm = st.number_input("Start y (mm)", 0.0, 200.0, 25.0, 0.1, key="start_y_mm")
-        with c4:
-            x1_mm = st.number_input("End x (mm)", 0.0, 500.0, 70.0, 0.1, key="end_x_mm")
-            y1_mm = st.number_input("End y (mm)", 0.0, 200.0, 25.0, 0.1, key="end_y_mm")
-        x0, y0 = x0_mm * 1e-3, y0_mm * 1e-3
-        x1, y1 = x1_mm * 1e-3, y1_mm * 1e-3
-        length = math.hypot(x1 - x0, y1 - y0)
-        if length <= 0.0:
-            st.error("The weld path has zero length. Move the end point away from the start.")
+        path_type = st.selectbox(
+            "Path type",
+            ["line", "circle", "spiral"],
+            key="path_type",
+            format_func=lambda p: {"line": "Line", "circle": "Circle", "spiral": "Spiral"}[p],
+        )
+
+        if path_type == "line":
+            c3, c4 = st.columns(2)
+            with c3:
+                x0_mm = st.number_input("Start x (mm)", 0.0, 500.0, 10.0, 0.1, key="start_x_mm")
+                y0_mm = st.number_input("Start y (mm)", 0.0, 200.0, 25.0, 0.1, key="start_y_mm")
+            with c4:
+                x1_mm = st.number_input("End x (mm)", 0.0, 500.0, 70.0, 0.1, key="end_x_mm")
+                y1_mm = st.number_input("End y (mm)", 0.0, 200.0, 25.0, 0.1, key="end_y_mm")
+            x0, y0 = x0_mm * 1e-3, y0_mm * 1e-3
+            x1, y1 = x1_mm * 1e-3, y1_mm * 1e-3
+            path = WeldPath(start=(x0, y0), end=(x1, y1), speed=speed)
+        elif path_type == "circle":
+            c3, c4, c5 = st.columns(3)
+            with c3:
+                cx_mm = st.number_input("Center x (mm)", 0.0, 500.0, 40.0, 0.1, key="center_x_mm")
+                cy_mm = st.number_input("Center y (mm)", 0.0, 200.0, 25.0, 0.1, key="center_y_mm")
+            with c4:
+                radius_mm = st.number_input("Radius (mm)", 0.1, 100.0, 5.0, 0.1, key="radius_mm")
+            with c5:
+                turns_path = st.number_input("Turns", 0.1, 10.0, 1.0, 0.1, key="turns_path")
+            path = WeldPath.circle(
+                center=(cx_mm * 1e-3, cy_mm * 1e-3),
+                radius=radius_mm * 1e-3,
+                speed=speed,
+                turns=turns_path,
+            )
+        else:  # spiral
+            c3, c4, c5 = st.columns(3)
+            with c3:
+                cx_mm = st.number_input("Center x (mm)", 0.0, 500.0, 40.0, 0.1, key="center_x_mm")
+                cy_mm = st.number_input("Center y (mm)", 0.0, 200.0, 25.0, 0.1, key="center_y_mm")
+            with c4:
+                r_start_mm = st.number_input(
+                    "Start radius (mm)", 0.0, 100.0, 1.0, 0.1, key="r_start_mm"
+                )
+                r_end_mm = st.number_input("End radius (mm)", 0.0, 100.0, 7.0, 0.1, key="r_end_mm")
+            with c5:
+                turns_path = st.number_input("Turns", 0.1, 10.0, 1.5, 0.1, key="turns_path")
+            path = WeldPath.spiral(
+                center=(cx_mm * 1e-3, cy_mm * 1e-3),
+                r_start=r_start_mm * 1e-3,
+                r_end=r_end_mm * 1e-3,
+                speed=speed,
+                turns=turns_path,
+            )
+
+        if path.length <= 0.0:
+            st.error("The weld path has zero length. Increase the radius or end radius.")
             return
-        st.write(f"Path length: **{length*1e3:.2f} mm**, travel time: **{length/speed:.3f} s**")
+        st.write(
+            f"Path length: **{path.length*1e3:.2f} mm**, " f"travel time: **{path.duration:.3f} s**"
+        )
 
         st.subheader("Wobble")
         c5, c6, c7 = st.columns(3)
@@ -1023,7 +1102,7 @@ def _page_thermal_and_wobble():
                 "Simulation time (s)",
                 0.1,
                 50.0,
-                float(min(max(tail * length / speed, 0.1), 50.0)),
+                float(min(max(tail * path.duration, 0.1), 50.0)),
                 0.1,
                 key="t_end",
             )
@@ -1042,8 +1121,10 @@ def _page_thermal_and_wobble():
 
         st.subheader("Thermal probe")
         st.caption("Defaults to the mid-point of the weld path, where the torch passes over it.")
-        px_default = min((x0_mm + x1_mm) / 2.0, Lx_mm)
-        py_default = min((y0_mm + y1_mm) / 2.0, Ly_mm)
+        mid_t = path.duration / 2.0 if path.duration > 0.0 else 0.0
+        mid_x_mm, mid_y_mm = (x * 1e3 for x in path.nominal_position(mid_t))
+        px_default = min(mid_x_mm, Lx_mm)
+        py_default = min(mid_y_mm, Ly_mm)
 
         px_kwargs: dict[str, Any] = {
             "min_value": 0.0,
@@ -1077,11 +1158,10 @@ def _page_thermal_and_wobble():
             power=power,
             efficiency=efficiency,
             speed=speed,
-            start_pos=(x0, y0),
+            start_pos=path.start,
             direction="x",
             sigma=sigma,
         )
-        path = WeldPath(start=(x0, y0), end=(x1, y1), speed=speed)
         wobble = WobbleParams(
             amplitude=wobble_amp * 1e-6,
             frequency=wobble_freq,
