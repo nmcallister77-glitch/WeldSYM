@@ -560,8 +560,8 @@ def plot_weld_3d_animation(
     volume_kwargs = [dict(common_kwargs, **cfg) for cfg in volume_configs]
 
     beam_kwargs = dict(
-        mode="markers",
-        marker=dict(size=5, color="cyan", symbol="diamond"),
+        mode="lines",
+        line=dict(color="cyan", width=4),
         name="beam",
         hoverinfo="skip",
     )
@@ -591,12 +591,28 @@ def plot_weld_3d_animation(
             T_r = T.ravel()
         if path is not None:
             t_clip = float(min(t, path.duration))
-            xb, yb = beam_at_time(path, wobble or WobbleParams(0.0, 0.0, "circle"), t_clip)
-            xb_mm, yb_mm = float(xb * 1e3), float(yb * 1e3)
+            # Beam track over one wobble period (or a short window if no wobble)
+            w = wobble or WobbleParams(0.0, 0.0, "circle")
+            if w.frequency > 0:
+                dt_window = 1.0 / w.frequency
+            else:
+                dt_window = 0.005
+            n_track = 16
+            t0 = max(0.0, t_clip - dt_window)
+            t_track = np.linspace(t0, t_clip, n_track)
+            x_track = []
+            y_track = []
+            for ti in t_track:
+                xb, yb = beam_at_time(path, w, float(min(ti, path.duration)))
+                x_track.append(float(xb * 1e3))
+                y_track.append(float(yb * 1e3))
+            z_track = [0.0] * len(x_track)
         else:
-            xb_mm, yb_mm = float("nan"), float("nan")
+            x_track = [0.0]
+            y_track = [0.0]
+            z_track = [0.0]
         frame_data: list[Any] = [go.Volume(value=T_r, **kw) for kw in volume_kwargs]
-        frame_data.append(go.Scatter3d(x=[xb_mm], y=[yb_mm], z=[0.0], **beam_kwargs))
+        frame_data.append(go.Scatter3d(x=x_track, y=y_track, z=z_track, **beam_kwargs))
         frames.append(
             go.Frame(
                 name=f"t={t:.3f}",
