@@ -324,44 +324,49 @@ def plot_weld_3d(
     y = Y.ravel() * 1e3
     z = Z.ravel() * 1e3
     values = solution.T_peak.ravel()
+    t_peak_max = max(float(solution.T_peak.max()), float(solution.solidus) + 1.0)
 
     traces: list[Any] = []
 
-    # Fusion-zone isosurface
+    # HAZ volume
     traces.append(
-        go.Isosurface(
-            x=x,
-            y=y,
-            z=z,
-            value=values,
-            isomin=float(solution.solidus),
-            isomax=float(solution.solidus),
-            surface_count=1,
-            colorscale=[[0, "#ff3333"], [1, "#ff3333"]],
-            showscale=False,
-            name="Fusion zone",
-            opacity=0.85,
-            hovertemplate=(
-                "x %{x:.2f}<br>y %{y:.2f}<br>z %{z:.2f}<br>fusion boundary<extra></extra>"
-            ),
-        )
-    )
-
-    # HAZ isosurface
-    traces.append(
-        go.Isosurface(
+        go.Volume(
             x=x,
             y=y,
             z=z,
             value=values,
             isomin=float(solution.haz_limit),
-            isomax=float(solution.haz_limit),
-            surface_count=1,
-            colorscale=[[0, "#ffaa00"], [1, "#ffaa00"]],
+            isomax=float(solution.solidus),
+            surface_count=4,
+            colorscale=[[0.0, "#ffcc00"], [0.5, "#ff8800"], [1.0, "#ff4400"]],
             showscale=False,
-            name="HAZ limit",
-            opacity=0.35,
-            hovertemplate="x %{x:.2f}<br>y %{y:.2f}<br>z %{z:.2f}<br>HAZ limit<extra></extra>",
+            name="HAZ",
+            opacity=0.06,
+            opacityscale="uniform",
+            caps=dict(x_show=False, y_show=False, z_show=False),
+            hovertemplate="x %{x:.2f}<br>y %{y:.2f}<br>z %{z:.2f}<br>HAZ<extra></extra>",
+        )
+    )
+
+    # Melt-pool volume
+    traces.append(
+        go.Volume(
+            x=x,
+            y=y,
+            z=z,
+            value=values,
+            isomin=float(solution.solidus),
+            isomax=t_peak_max,
+            surface_count=10,
+            colorscale="Hot",
+            showscale=False,
+            name="Melt pool",
+            opacity=0.08,
+            opacityscale="max",
+            caps=dict(x_show=False, y_show=False, z_show=True),
+            hovertemplate=(
+                "x %{x:.2f}<br>y %{y:.2f}<br>z %{z:.2f}<br>T %{value:.0f} K<extra></extra>"
+            ),
         )
     )
 
@@ -415,8 +420,10 @@ def plot_weld_3d_animation(
     top_thickness: float | None = None,
     time_scale: float = 1.0,
     max_frames: int = 120,
+    heat_filter: str = "melt pool",
+    surface_count: int = 8,
 ) -> go.Figure:
-    """Animated 3D weld pool with fusion and HAZ isosurfaces and time scaling."""
+    """Animated 3D weld pool volume with heat-signature filters and time scaling."""
     if not solution.T_history:
         fig = go.Figure()
         fig.add_annotation(
@@ -472,35 +479,72 @@ def plot_weld_3d_animation(
 
     solidus = float(solution.solidus)
     haz_limit = float(solution.haz_limit)
+    t_peak_max = max(float(solution.T_peak.max()), solidus + 1.0)
 
-    fusion_kwargs = dict(
+    filter_key = heat_filter.strip().lower()
+    volume_configs: list[dict[str, Any]] = []
+    if filter_key in ("melt pool", "melt"):
+        volume_configs = [
+            {
+                "isomin": solidus,
+                "isomax": t_peak_max,
+                "surface_count": max(2, surface_count),
+                "colorscale": "Hot",
+                "opacity": 0.08,
+                "opacityscale": "max",
+                "name": "Melt pool",
+                "caps": dict(x_show=False, y_show=False, z_show=True),
+            },
+        ]
+    elif filter_key in ("haz", "haz only"):
+        volume_configs = [
+            {
+                "isomin": haz_limit,
+                "isomax": solidus,
+                "surface_count": max(2, surface_count // 2),
+                "colorscale": [[0.0, "#ffcc00"], [0.5, "#ff8800"], [1.0, "#ff4400"]],
+                "opacity": 0.06,
+                "opacityscale": "uniform",
+                "name": "HAZ",
+                "caps": dict(x_show=False, y_show=False, z_show=False),
+            },
+        ]
+    else:
+        volume_configs = [
+            {
+                "isomin": haz_limit,
+                "isomax": solidus,
+                "surface_count": max(2, surface_count // 2),
+                "colorscale": [[0.0, "#ffcc00"], [0.5, "#ff8800"], [1.0, "#ff4400"]],
+                "opacity": 0.06,
+                "opacityscale": "uniform",
+                "name": "HAZ",
+                "caps": dict(x_show=False, y_show=False, z_show=False),
+            },
+            {
+                "isomin": solidus,
+                "isomax": t_peak_max,
+                "surface_count": max(2, surface_count),
+                "colorscale": "Hot",
+                "opacity": 0.08,
+                "opacityscale": "max",
+                "name": "Melt pool",
+                "caps": dict(x_show=False, y_show=False, z_show=True),
+            },
+        ]
+
+    common_kwargs = dict(
         x=x_all,
         y=y_all,
         z=z_all,
-        isomin=solidus,
-        isomax=solidus,
-        surface_count=1,
-        colorscale=[[0, "#ff3333"], [1, "#ff3333"]],
         showscale=False,
-        name="Fusion zone",
-        opacity=0.9,
-        caps=dict(x_show=False, y_show=False, z_show=True),
-        hovertemplate="x %{x:.2f}<br>y %{y:.2f}<br>z %{z:.2f}<br>fusion<extra></extra>",
+        hovertemplate=(
+            "x %{x:.2f}<br>y %{y:.2f}<br>z %{z:.2f}<br>T %{value:.0f} K<extra>%{name}</extra>"
+        ),
     )
-    haz_kwargs = dict(
-        x=x_all,
-        y=y_all,
-        z=z_all,
-        isomin=haz_limit,
-        isomax=haz_limit,
-        surface_count=1,
-        colorscale=[[0, "#ffaa00"], [1, "#ffaa00"]],
-        showscale=False,
-        name="HAZ",
-        opacity=0.18,
-        caps=dict(x_show=False, y_show=False, z_show=False),
-        hovertemplate="x %{x:.2f}<br>y %{y:.2f}<br>z %{z:.2f}<br>HAZ<extra></extra>",
-    )
+
+    volume_kwargs = [dict(common_kwargs, **cfg) for cfg in volume_configs]
+
     beam_kwargs = dict(
         mode="markers",
         marker=dict(size=5, color="cyan", symbol="diamond"),
@@ -518,11 +562,10 @@ def plot_weld_3d_animation(
         )
     )
     n_plate = len(base_traces)
-    base_traces.append(go.Isosurface(value=T_history[0].ravel(), **fusion_kwargs))
-    base_traces.append(go.Isosurface(value=T_history[0].ravel(), **haz_kwargs))
+    base_traces.extend([go.Volume(value=T_history[0].ravel(), **kw) for kw in volume_kwargs])
     base_traces.append(go.Scatter3d(x=[], y=[], z=[], **beam_kwargs))
 
-    dynamic_indices = [n_plate, n_plate + 1, n_plate + 2]
+    dynamic_indices = list(range(n_plate, len(base_traces)))
 
     frames: list[go.Frame] = []
     for t, T in zip(frame_times, T_history):
@@ -533,15 +576,13 @@ def plot_weld_3d_animation(
             xb_mm, yb_mm = float(xb * 1e3), float(yb * 1e3)
         else:
             xb_mm, yb_mm = float("nan"), float("nan")
+        frame_data: list[Any] = [go.Volume(value=T_r, **kw) for kw in volume_kwargs]
+        frame_data.append(go.Scatter3d(x=[xb_mm], y=[yb_mm], z=[0.0], **beam_kwargs))
         frames.append(
             go.Frame(
                 name=f"t={t:.3f}",
                 traces=dynamic_indices,
-                data=[
-                    go.Isosurface(value=T_r, **fusion_kwargs),
-                    go.Isosurface(value=T_r, **haz_kwargs),
-                    go.Scatter3d(x=[xb_mm], y=[yb_mm], z=[0.0], **beam_kwargs),
-                ],
+                data=frame_data,
             )
         )
 

@@ -1380,8 +1380,19 @@ def _page_thermal_and_wobble():
                             key="anim_time_scale",
                         )
                     with c2:
+                        anim_heat_filter = st.selectbox(
+                            "Heat signature filter",
+                            ["Melt pool", "Melt pool + HAZ", "HAZ only"],
+                            key="anim_heat_filter",
+                        )
+                    c3, c4 = st.columns(2)
+                    with c3:
                         anim_max_frames = st.slider(
                             "Max frames", 30, 300, 120, 10, key="anim_max_frames"
+                        )
+                    with c4:
+                        anim_surface_count = st.slider(
+                            "Volume surfaces", 2, 30, 8, 1, key="anim_surface_count"
                         )
                     if st.button("Go", key="go_3d_animation"):
                         st.session_state["show_3d_animation"] = True
@@ -1399,6 +1410,8 @@ def _page_thermal_and_wobble():
                                         top_thickness=result.get("top_thickness"),
                                         time_scale=anim_time_scale,
                                         max_frames=int(anim_max_frames),
+                                        heat_filter=str(anim_heat_filter),
+                                        surface_count=int(anim_surface_count),
                                     )
                                 )
                 else:
