@@ -35,7 +35,13 @@ from weldsim.calibration import (
 from dataclasses import replace
 
 from weldsim.errors import WeldSimError
-from weldsim.materials import Material, list_materials, load_material
+from weldsim.materials import (
+    Material,
+    list_materials,
+    load_material,
+    material_liquidus,
+    material_temperatures,
+)
 from weldsim.presets import PRESETS, Preset
 from weldsim.report import WeldReport, build_report
 from weldsim.simulation import (
@@ -672,7 +678,10 @@ def _render_weld_report(
 def _load_preset_into_setup(preset: Preset, top_mm: float, bottom_mm: float) -> None:
     """Populate the Setup tab widgets from a preset so the user can adjust them before running."""
     st.session_state["mat_name"] = preset.material
-    st.session_state["op_temp"] = float(preset.material_at_temperature)
+    st.session_state["op_temp_last_mat"] = preset.material
+    temps = material_temperatures(preset.material)
+    t_min, t_max = float(min(temps)), float(max(temps))
+    st.session_state["op_temp"] = float(min(max(preset.material_at_temperature, t_min), t_max))
     st.session_state["use_custom"] = False
     st.session_state["power"] = float(preset.power)
     st.session_state["efficiency"] = float(preset.efficiency)
@@ -818,6 +827,11 @@ def _run_preset(preset: Preset) -> None:
     st.session_state["T1"] = config.T1
     st.session_state["T1_mm"] = config.T1 * 1e3
 
+    st.session_state["op_temp_last_mat"] = preset.material
+    temps = material_temperatures(preset.material)
+    t_min, t_max = float(min(temps)), float(max(temps))
+    st.session_state["op_temp"] = float(min(max(preset.material_at_temperature, t_min), t_max))
+
     st.session_state["path_type"] = preset.path_type
     st.session_state["center_x_mm"] = float(preset.center[0]) * 1e3
     st.session_state["center_y_mm"] = float(preset.center[1]) * 1e3
@@ -921,13 +935,31 @@ def _page_thermal_and_wobble():
             st.subheader("Material")
             mat_options = list_materials()
             mat_name = st.selectbox("Material", mat_options, key="mat_name")
+
+            temps = material_temperatures(mat_name)
+            t_min, t_max = float(min(temps)), float(max(temps))
+            liquidus = material_liquidus(mat_name)
+            nearest_to_liquidus = float(min(temps, key=lambda t: abs(t - liquidus)))
+
+            last_mat = st.session_state.get("op_temp_last_mat")
+            if last_mat != mat_name or "op_temp" not in st.session_state:
+                st.session_state["op_temp"] = nearest_to_liquidus
+                st.session_state["op_temp_last_mat"] = mat_name
+            else:
+                current = st.session_state["op_temp"]
+                if current < t_min or current > t_max:
+                    st.session_state["op_temp"] = nearest_to_liquidus
+
             op_temp = st.slider(
-                "Operating temperature for props (K)",
-                293.0,
-                3000.0,
-                800.0,
-                50.0,
+                "Evaluate material properties at (K)",
+                t_min,
+                t_max,
+                step=1.0,
                 key="op_temp",
+            )
+            st.caption(
+                "The solver uses one constant k, rho, cp set sampled from the "
+                "material's temperature table at this temperature."
             )
             use_custom = st.checkbox("Use custom k/rho/cp", key="use_custom")
             if use_custom:

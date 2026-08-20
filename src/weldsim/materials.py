@@ -275,3 +275,26 @@ def list_materials() -> list[str]:
     """Return available material YAML names."""
     root = Path(__file__).resolve().parent.parent.parent / "keyhole-cfd" / "materials"
     return sorted([p.stem for p in root.glob("*.yaml")])
+
+
+def _material_yaml(name: str) -> dict[str, Any]:
+    """Raw YAML content for a material."""
+    root = Path(__file__).resolve().parent.parent.parent / "keyhole-cfd" / "materials"
+    path = root / f"{name}.yaml"
+    if not path.exists():
+        available = sorted([p.stem for p in root.glob("*.yaml")])
+        raise FileNotFoundError(f"Material '{name}' not found. Available: {', '.join(available)}")
+    with path.open("r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def material_temperatures(name: str) -> list[float]:
+    """Return the thermal-property table temperatures (K) for a material."""
+    data = _material_yaml(name)
+    return [float(t) for t in data["thermal"]["temperature"]]
+
+
+def material_liquidus(name: str) -> float:
+    """Return the liquidus temperature (K) for a material."""
+    data = _material_yaml(name)
+    return float(data["phase_change"]["liquidus_temperature"])
