@@ -413,10 +413,10 @@ def plot_weld_3d_animation(
     path: WeldPath | None = None,
     wobble: WobbleParams | None = None,
     top_thickness: float | None = None,
-    fps: int = 15,
-    max_points: int = 20_000,
+    time_scale: float = 1.0,
+    max_frames: int = 120,
 ) -> go.Figure:
-    """Animated 3D point-cloud of the weld being made, with play/pause and a Go button."""
+    """Animated 3D weld pool with fusion and HAZ isosurfaces and time scaling."""
     if not solution.T_history:
         fig = go.Figure()
         fig.add_annotation(
@@ -426,6 +426,42 @@ def plot_weld_3d_animation(
         )
         return fig
 
+    # Time scaling: drop frames for fast forward, stretch frames for slow motion.
+    n_frames = len(solution.T_history)
+    if n_frames > max_frames:
+        stride = max(1, n_frames // max_frames)
+        if n_frames // stride > max_frames:
+            stride += 1
+        frame_times = solution.frame_times[::stride]
+        T_history = solution.T_history[::stride]
+    else:
+        frame_times = list(solution.frame_times)
+        T_history = list(solution.T_history)
+
+    if len(frame_times) < 2:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="Not enough animation frames for a 3D playback.",
+            showarrow=False,
+            font=dict(size=14),
+        )
+        return fig
+
+    frame_dt = float(frame_times[1] - frame_times[0])
+    if time_scale >= 1.0:
+        play_stride = max(1, int(round(time_scale)))
+        frame_ms = max(20, int(play_stride * frame_dt * 1000.0 / time_scale))
+    else:
+        play_stride = 1
+        frame_ms = max(20, int(frame_dt * 1000.0 / time_scale))
+
+    if play_stride > 1:
+        frame_times = frame_times[::play_stride]
+        T_history = T_history[::play_stride]
+
+    total_time = float(frame_times[-1])
+    playback_time = total_time / time_scale
+
     x = np.asarray(solution.x) * 1e3
     y = np.asarray(solution.y) * 1e3
     z = np.asarray(solution.z) * 1e3
@@ -434,21 +470,44 @@ def plot_weld_3d_animation(
     y_all = Y.ravel()
     z_all = Z.ravel()
 
-    T_peak_r = solution.T_peak.ravel()
-    solidus = float(material.solidus)
-    fused = T_peak_r >= solidus
-    if fused.sum() > max_points:
-        # Keep the hottest points to show the heart of the weld.
-        idx = np.argpartition(T_peak_r[fused], -max_points)[-max_points:]
-        fused_idx = np.nonzero(fused)[0][idx]
-    else:
-        fused_idx = np.nonzero(fused)[0]
+    solidus = float(solution.solidus)
+    haz_limit = float(solution.haz_limit)
 
-    x_pts = x_all[fused_idx]
-    y_pts = y_all[fused_idx]
-    z_pts = z_all[fused_idx]
+    fusion_kwargs = dict(
+        x=x_all,
+        y=y_all,
+        z=z_all,
+        isomin=solidus,
+        isomax=solidus,
+        surface_count=1,
+        colorscale=[[0, "#ff3333"], [1, "#ff3333"]],
+        showscale=False,
+        name="Fusion zone",
+        opacity=0.9,
+        caps=dict(x_show=False, y_show=False, z_show=True),
+        hovertemplate="x %{x:.2f}<br>y %{y:.2f}<br>z %{z:.2f}<br>fusion<extra></extra>",
+    )
+    haz_kwargs = dict(
+        x=x_all,
+        y=y_all,
+        z=z_all,
+        isomin=haz_limit,
+        isomax=haz_limit,
+        surface_count=1,
+        colorscale=[[0, "#ffaa00"], [1, "#ffaa00"]],
+        showscale=False,
+        name="HAZ",
+        opacity=0.18,
+        caps=dict(x_show=False, y_show=False, z_show=False),
+        hovertemplate="x %{x:.2f}<br>y %{y:.2f}<br>z %{z:.2f}<br>HAZ<extra></extra>",
+    )
+    beam_kwargs = dict(
+        mode="markers",
+        marker=dict(size=5, color="cyan", symbol="diamond"),
+        name="beam",
+        hoverinfo="skip",
+    )
 
-    # Base (static) traces: plate wireframe, interface plane, and fused zone.
     base_traces: list[Any] = []
     base_traces.extend(
         _plate_traces(
@@ -458,65 +517,30 @@ def plot_weld_3d_animation(
             top_thickness,
         )
     )
+    n_plate = len(base_traces)
+    base_traces.append(go.Isosurface(value=T_history[0].ravel(), **fusion_kwargs))
+    base_traces.append(go.Isosurface(value=T_history[0].ravel(), **haz_kwargs))
+    base_traces.append(go.Scatter3d(x=[], y=[], z=[], **beam_kwargs))
 
-    base_traces.append(
-        go.Scatter3d(
-            x=x_pts,
-            y=y_pts,
-            z=z_pts,
-            mode="markers",
-            marker=dict(size=2, color="rgba(255,50,50,0.6)"),
-            name="fused zone",
-            hoverinfo="skip",
-        )
-    )
-    base_traces.append(
-        go.Scatter3d(
-            x=[],
-            y=[],
-            z=[],
-            mode="markers",
-            marker=dict(size=5, color="cyan", symbol="diamond"),
-            name="beam",
-            hoverinfo="skip",
-        )
-    )
+    dynamic_indices = [n_plate, n_plate + 1, n_plate + 2]
 
-    # Build frames.
     frames: list[go.Frame] = []
-    fused_color = "rgba(255,50,50,0.6)"
-    hide_color = "rgba(0,0,0,0)"
-    for t, T in zip(solution.frame_times, solution.T_history):
-        T_r = T.ravel()[fused_idx]
-        colors = np.where(T_r >= solidus, fused_color, hide_color)
+    for t, T in zip(frame_times, T_history):
+        T_r = T.ravel()
         if path is not None:
             t_clip = float(min(t, path.duration))
             xb, yb = beam_at_time(path, wobble or WobbleParams(0.0, 0.0, "circle"), t_clip)
-            xb, yb = float(xb * 1e3), float(yb * 1e3)
+            xb_mm, yb_mm = float(xb * 1e3), float(yb * 1e3)
         else:
-            xb, yb = float("nan"), float("nan")
+            xb_mm, yb_mm = float("nan"), float("nan")
         frames.append(
             go.Frame(
                 name=f"t={t:.3f}",
+                traces=dynamic_indices,
                 data=[
-                    go.Scatter3d(
-                        x=x_pts,
-                        y=y_pts,
-                        z=z_pts,
-                        mode="markers",
-                        marker=dict(size=2, color=list(colors)),
-                        name="fused zone",
-                        hoverinfo="skip",
-                    ),
-                    go.Scatter3d(
-                        x=[xb],
-                        y=[yb],
-                        z=[0.0],
-                        mode="markers",
-                        marker=dict(size=5, color="cyan", symbol="diamond"),
-                        name="beam",
-                        hoverinfo="skip",
-                    ),
+                    go.Isosurface(value=T_r, **fusion_kwargs),
+                    go.Isosurface(value=T_r, **haz_kwargs),
+                    go.Scatter3d(x=[xb_mm], y=[yb_mm], z=[0.0], **beam_kwargs),
                 ],
             )
         )
@@ -534,16 +558,12 @@ def plot_weld_3d_animation(
             "label": f"{t:.2f}",
             "method": "animate",
         }
-        for t in solution.frame_times
+        for t in frame_times
     ]
-
-    dynamic_indices = list(range(len(base_traces) - 2, len(base_traces)))
-    for frame in frames:
-        frame.traces = dynamic_indices
 
     fig = go.Figure(data=base_traces, frames=frames)
     fig.update_layout(
-        **_default_layout("3D weld animation"),
+        **_default_layout(f"3D weld animation — {playback_time:.2f}s playback ({time_scale:.1f}x)"),
         scene=dict(
             xaxis=dict(title="x (mm)"),
             yaxis=dict(title="y (mm)"),
@@ -565,8 +585,14 @@ def plot_weld_3d_animation(
                         "args": [
                             None,
                             {
-                                "frame": {"duration": int(1000 / fps), "redraw": True},
-                                "transition": {"duration": int(1000 / fps), "easing": "linear"},
+                                "frame": {
+                                    "duration": frame_ms,
+                                    "redraw": True,
+                                },
+                                "transition": {
+                                    "duration": frame_ms,
+                                    "easing": "linear",
+                                },
                                 "fromcurrent": True,
                                 "mode": "immediate",
                             },

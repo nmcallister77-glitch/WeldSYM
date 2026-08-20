@@ -1369,6 +1369,20 @@ def _page_thermal_and_wobble():
             with st.expander("3D weld animation", expanded=False):
                 solution3d = result.get("solution3d")
                 if solution3d is not None:
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        anim_time_scale = st.slider(
+                            "Playback time scale",
+                            0.1,
+                            20.0,
+                            1.0,
+                            0.1,
+                            key="anim_time_scale",
+                        )
+                    with c2:
+                        anim_max_frames = st.slider(
+                            "Max frames", 30, 300, 120, 10, key="anim_max_frames"
+                        )
                     if st.button("Go", key="go_3d_animation"):
                         st.session_state["show_3d_animation"] = True
                     if st.session_state.get("show_3d_animation"):
@@ -1383,6 +1397,8 @@ def _page_thermal_and_wobble():
                                         path=st.session_state.get("path"),
                                         wobble=st.session_state.get("wobble"),
                                         top_thickness=result.get("top_thickness"),
+                                        time_scale=anim_time_scale,
+                                        max_frames=int(anim_max_frames),
                                     )
                                 )
                 else:
