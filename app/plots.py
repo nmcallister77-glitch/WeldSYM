@@ -431,8 +431,13 @@ def plot_weld_3d_animation(
     max_frames: int = 120,
     heat_filter: str = "melt pool",
     surface_count: int = 8,
+    show_trail: bool = True,
 ) -> go.Figure:
-    """Animated 3D weld pool volume with heat-signature filters and time scaling."""
+    """Animated 3D weld pool volume with heat-signature filters and time scaling.
+
+    If ``show_trail`` is True each frame shows the peak temperature reached so
+    far, so the solidified weld bead stays behind the moving beam instead of
+    disappearing."""
     if not solution.T_history:
         fig = go.Figure()
         fig.add_annotation(
@@ -577,8 +582,13 @@ def plot_weld_3d_animation(
     dynamic_indices = list(range(n_plate, len(base_traces)))
 
     frames: list[go.Frame] = []
+    T_peak_so_far = T_history[0].copy()
     for t, T in zip(frame_times, T_history):
-        T_r = T.ravel()
+        if show_trail:
+            np.maximum(T_peak_so_far, T, out=T_peak_so_far)
+            T_r = T_peak_so_far.ravel()
+        else:
+            T_r = T.ravel()
         if path is not None:
             t_clip = float(min(t, path.duration))
             xb, yb = beam_at_time(path, wobble or WobbleParams(0.0, 0.0, "circle"), t_clip)

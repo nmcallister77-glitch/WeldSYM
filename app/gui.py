@@ -1601,6 +1601,7 @@ def _page_thermal_and_wobble():
                         anim_surface_count = st.slider(
                             "Volume surfaces", 2, 30, 8, 1, key="anim_surface_count"
                         )
+                    show_trail = st.checkbox("Show frozen trail", value=True, key="anim_show_trail")
                     if st.button("Go", key="go_3d_animation"):
                         st.session_state["show_3d_animation"] = True
                     if st.session_state.get("show_3d_animation"):
@@ -1619,6 +1620,7 @@ def _page_thermal_and_wobble():
                                         max_frames=int(anim_max_frames),
                                         heat_filter=str(anim_heat_filter),
                                         surface_count=int(anim_surface_count),
+                                        show_trail=show_trail,
                                     )
                                 )
                 else:
