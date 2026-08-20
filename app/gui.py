@@ -69,7 +69,7 @@ def _show(fig: plt.Figure | go.Figure) -> None:
         _apply_2d_plot_settings(fig)
         plot_width = st.session_state.get("plot_width", 0) or None
         plot_height = st.session_state.get("plot_height", 0) or None
-        kwargs: dict[str, Any] = {}
+        kwargs: dict[str, Any] = {"theme": None}
         if plot_width is not None:
             kwargs["width"] = int(plot_width)
         if plot_height is not None:

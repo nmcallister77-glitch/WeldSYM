@@ -1,4 +1,5 @@
 results/
+completed_runs.json
 *.egg-info/
 __pycache__/
 *.pyc

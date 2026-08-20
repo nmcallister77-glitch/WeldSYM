@@ -20,19 +20,28 @@ from weldsim.weld_path import WeldPath, WobbleParams, beam_at_time, beam_traject
 
 
 def _axis_mm(title: str) -> dict[str, Any]:
-    return dict(title=title, gridcolor="rgba(0,0,0,0.1)", zeroline=False)
+    return dict(
+        title=dict(text=title, font=dict(color="#1a1a1a", size=14)),
+        tickfont=dict(color="#1a1a1a", size=12),
+        gridcolor="rgba(0,0,0,0.1)",
+        zeroline=False,
+    )
 
 
 def _default_layout(title: str | None = None) -> dict[str, Any]:
     layout: dict[str, Any] = dict(
+        template="plotly_white",
         margin=dict(l=60, r=20, t=50, b=50),
         paper_bgcolor="white",
         plot_bgcolor="white",
+        font=dict(color="#1a1a1a", size=14),
         hovermode="closest",
         dragmode="zoom",
     )
     if title:
-        layout["title"] = dict(text=title, x=0.5, xanchor="center")
+        layout["title"] = dict(
+            text=title, x=0.5, xanchor="center", font=dict(color="#1a1a1a", size=16)
+        )
     return layout
 
 
