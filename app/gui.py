@@ -6,8 +6,11 @@ import csv
 import io
 import json
 import math
+import queue
 import subprocess
 import sys
+import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +37,7 @@ from weldsim.calibration import (
 )
 from dataclasses import replace
 
-from weldsim.errors import WeldSimError
+from weldsim.errors import AbortError, WeldSimError
 from weldsim.materials import (
     Material,
     list_materials,
@@ -63,10 +66,163 @@ from weldsim.weld_path import (
 def _show(fig: plt.Figure | go.Figure) -> None:
     """Render a Matplotlib or Plotly figure and close it if it is a pyplot."""
     if isinstance(fig, go.Figure):
-        st.plotly_chart(fig, width="stretch")
+        _apply_2d_plot_settings(fig)
+        plot_width = st.session_state.get("plot_width", 0) or None
+        plot_height = st.session_state.get("plot_height", 0) or None
+        kwargs: dict[str, Any] = {}
+        if plot_width is not None:
+            kwargs["width"] = int(plot_width)
+        if plot_height is not None:
+            kwargs["height"] = int(plot_height)
+        st.plotly_chart(fig, **kwargs)
     else:
         st.pyplot(fig)
         plt.close(fig)
+
+
+def _apply_2d_plot_settings(fig: go.Figure) -> None:
+    """Apply user-chosen colorscale, contrast and (for heat/surface maps) T clips."""
+    colorscale = st.session_state.get("plot_colorscale")
+    tmin = st.session_state.get("plot_tmin", 0.0) or None
+    tmax = st.session_state.get("plot_tmax", 0.0) or None
+    if not (colorscale or tmin or tmax):
+        return
+    for trace in fig.data:
+        if trace.type in ("heatmap", "contour"):
+            if colorscale:
+                trace.colorscale = colorscale
+            if tmin is not None:
+                trace.zmin = float(tmin)
+            if tmax is not None:
+                trace.zmax = float(tmax)
+        elif trace.type == "surface":
+            if colorscale:
+                trace.colorscale = colorscale
+            if tmin is not None:
+                trace.cmin = float(tmin)
+            if tmax is not None:
+                trace.cmax = float(tmax)
+
+
+_RUN_LOG_PATH = Path(__file__).resolve().parent.parent / "completed_runs.json"
+
+
+def _load_run_log() -> list[dict[str, Any]]:
+    if not _RUN_LOG_PATH.exists():
+        return []
+    with _RUN_LOG_PATH.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _append_run_log(entry: dict[str, Any]) -> None:
+    log = _load_run_log()
+    log.append(entry)
+    _RUN_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with _RUN_LOG_PATH.open("w", encoding="utf-8") as f:
+        json.dump(log, f, indent=2, default=str)
+
+
+def _solver_worker(
+    config: ThermalSimulationConfig,
+    msg_queue: queue.Queue,
+    abort_event: threading.Event,
+) -> None:
+    def on_progress(fraction: float) -> None:
+        msg_queue.put(("progress", fraction))
+
+    try:
+        result = run_thermal_simulation(
+            config,
+            on_progress=on_progress,
+            abort=abort_event.is_set,
+        )
+        msg_queue.put(("result", result))
+    except AbortError as exc:
+        msg_queue.put(("aborted", str(exc)))
+    except WeldSimError as exc:
+        msg_queue.put(("error", str(exc)))
+    except Exception as exc:
+        msg_queue.put(("error", f"{type(exc).__name__}: {exc}"))
+
+
+def _simulation_running() -> bool:
+    thread = st.session_state.get("run_thread")
+    return thread is not None and thread.is_alive()
+
+
+def _process_run_queue() -> None:
+    q = st.session_state.get("run_queue")
+    if q is None:
+        return
+    prev_status = st.session_state.get("run_status", "running")
+    progress = st.session_state.get("run_progress", 0.0)
+    result = None
+    status = prev_status
+    message: str | None = st.session_state.get("run_message")
+    while not q.empty():
+        kind, payload = q.get_nowait()
+        if kind == "progress":
+            progress = float(payload)
+        elif kind == "result":
+            result = payload
+            status = "completed"
+        elif kind in ("aborted", "error"):
+            status = kind
+            message = str(payload)
+    st.session_state["run_progress"] = progress
+    if prev_status != "running" or status == "running":
+        # Already finalised or still running; only update the progress bar.
+        return
+    # First time we see the final outcome.
+    st.session_state["run_status"] = status
+    st.session_state["run_message"] = message
+    st.session_state.pop("run_thread", None)
+    if status == "completed" and result is not None:
+        config = st.session_state.get("run_config")
+        if config is not None:
+            report = build_report(config, result)
+            st.session_state["thermal_result"] = result
+            st.session_state["weld_report"] = report
+            st.session_state["thermal_config"] = config
+            st.session_state["thermal_material"] = config.material
+            st.session_state["thermal_weld"] = config.weld
+            if config.path is not None:
+                st.session_state["thermal_x1"] = config.path.end[0]
+                st.session_state["thermal_y1"] = config.path.end[1]
+            _append_run_log(
+                {
+                    "time": datetime.now().isoformat(),
+                    "status": "completed",
+                    "solver": config.solver,
+                    "power": config.weld.power if config.weld else None,
+                    "speed": config.weld.speed if config.weld else None,
+                    "efficiency": config.weld.efficiency if config.weld else None,
+                    "material": (
+                        config.material.name if isinstance(config.material, Material) else None
+                    ),
+                    "nx": config.nx,
+                    "ny": config.ny,
+                    "nz": config.nz,
+                    "t_end": config.t_end,
+                }
+            )
+    elif status == "error":
+        _append_run_log(
+            {
+                "time": datetime.now().isoformat(),
+                "status": "error",
+                "message": message,
+                "solver": st.session_state.get("run_config", ThermalSimulationConfig()).solver,
+            }
+        )
+    elif status == "aborted":
+        _append_run_log(
+            {
+                "time": datetime.now().isoformat(),
+                "status": "aborted",
+                "solver": st.session_state.get("run_config", ThermalSimulationConfig()).solver,
+            }
+        )
 
 
 def _wobble_calculator_html(
@@ -1205,8 +1361,11 @@ def _page_thermal_and_wobble():
         with go:
             preview_pressed = st.button("Go (draw heat signature)", type="primary", width="stretch")
         with run:
-            run_label = "Run 3D weld simulation" if solver == "3d" else "Run 2D weld simulation"
-            run_pressed = st.button(run_label, width="stretch")
+            if _simulation_running():
+                run_label = "Check status"
+            else:
+                run_label = "Run 3D weld simulation" if solver == "3d" else "Run 2D weld simulation"
+            run_pressed = st.button(run_label, key="run_thermal_button", width="stretch")
 
         st.session_state["weld"] = weld
         st.session_state["path"] = path
@@ -1268,37 +1427,35 @@ def _page_thermal_and_wobble():
                 top_thickness=top_thickness_m,
                 store_3d_frames=solver == "3d",
                 frame_interval=0.02,
+                max_stored_frames=1_000,
                 path=path,
                 wobble=wobble,
                 probe=(px, py) if solver == "2d" else None,
                 solver=solver,
             )
-            bar = st.progress(0.0, text="Running thermal simulation...")
-
-            def report_progress(fraction: float) -> None:
-                bar.progress(
-                    min(fraction, 1.0),
-                    text=f"Running 3D thermal simulation... {fraction * 100:.0f}%",
+            if _simulation_running():
+                st.info(
+                    "A simulation is already running. Refresh to check progress or click Abort."
                 )
-
-            try:
-                result = run_thermal_simulation(config, on_progress=report_progress)
-                report = build_report(config, result)
-            except WeldSimError as exc:
-                st.error(str(exc))
-                st.session_state.pop("thermal_result", None)
+            else:
+                q = queue.Queue()
+                event = threading.Event()
+                thread = threading.Thread(
+                    target=_solver_worker,
+                    args=(config, q, event),
+                    daemon=True,
+                )
+                thread.start()
+                st.session_state["run_thread"] = thread
+                st.session_state["run_queue"] = q
+                st.session_state["run_abort"] = event
+                st.session_state["run_config"] = config
+                st.session_state["run_status"] = "running"
+                st.session_state["run_progress"] = 0.0
+                st.session_state.pop("run_message", None)
                 st.session_state.pop("weld_report", None)
-                result = None
-            finally:
-                bar.empty()
-            if result is not None:
-                st.session_state["thermal_result"] = result
-                st.session_state["weld_report"] = report
-                st.session_state["thermal_config"] = config
-                st.session_state["thermal_material"] = material
-                st.session_state["thermal_weld"] = weld
-                st.session_state["thermal_x1"] = x1
-                st.session_state["thermal_y1"] = y1
+                st.session_state.pop("thermal_result", None)
+                st.success("Simulation started in the background. Click Refresh to poll status.")
 
     # --- Wobble tab: embedded standalone wobble calculator ---
     with tab_wobble:
@@ -1322,14 +1479,42 @@ def _page_thermal_and_wobble():
 
     # --- Weld result tab: what the parameters actually produce ---
     with tab_weld:
-        if "weld_report" in st.session_state:
-            _render_weld_report(
-                st.session_state["weld_report"],
-                st.session_state["thermal_result"],
-                st.session_state["thermal_config"],
-            )
+        _process_run_queue()
+
+        if _simulation_running():
+            progress = st.session_state.get("run_progress", 0.0)
+            st.progress(min(progress, 1.0), text=f"Running... {progress * 100:.0f}%")
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("Abort", type="secondary", key="abort_run_button"):
+                    event = st.session_state.get("run_abort")
+                    if event is not None:
+                        event.set()
+                    st.warning("Abort requested. Click Refresh to see the final status.")
+            with c2:
+                st.button("Refresh", key="refresh_run_button")
         else:
-            st.info("Run a simulation on the **Setup** tab to get the weld assessment.")
+            status = st.session_state.get("run_status")
+            if status == "completed" and "weld_report" in st.session_state:
+                _render_weld_report(
+                    st.session_state["weld_report"],
+                    st.session_state["thermal_result"],
+                    st.session_state["thermal_config"],
+                )
+            elif status == "error":
+                st.error(st.session_state.get("run_message", "Simulation failed."))
+            elif status == "aborted":
+                st.warning("Simulation aborted by user.")
+            elif status is None:
+                st.info("Run a simulation on the **Setup** tab to get the weld assessment.")
+
+        # Simulation log
+        with st.expander("Simulation log", expanded=False):
+            log = _load_run_log()
+            if log:
+                st.dataframe(log)
+            else:
+                st.info("No completed simulations yet.")
 
     # --- Thermal tab (always rendered, data from session state) ---
     with tab_thermal:
@@ -1347,6 +1532,28 @@ def _page_thermal_and_wobble():
             for i, (k, v) in enumerate(metrics.items()):
                 with cols[i % 4]:
                     st.metric(k, f"{v:.3f}" if isinstance(v, float) else v)
+
+            with st.expander("2D plot settings (resolution & contrast)", expanded=False):
+                pw, ph = st.columns(2)
+                with pw:
+                    st.slider("Plot width (px)", 0, 1600, 0, 50, key="plot_width")
+                with ph:
+                    st.slider("Plot height (px)", 0, 1200, 0, 50, key="plot_height")
+                st.selectbox(
+                    "Colorscale",
+                    ["Inferno", "Hot", "Plasma", "Jet", "Viridis", "Magma"],
+                    index=0,
+                    key="plot_colorscale",
+                )
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.number_input(
+                        "T low clip (K, 0 = auto)", 0.0, 5000.0, 0.0, 10.0, key="plot_tmin"
+                    )
+                with c2:
+                    st.number_input(
+                        "T high clip (K, 0 = auto)", 0.0, 8000.0, 0.0, 10.0, key="plot_tmax"
+                    )
 
             c1, c2 = st.columns(2)
             with c1:

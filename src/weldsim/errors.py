@@ -15,4 +15,8 @@ class StabilityError(WeldSimError, ValueError):
     """The requested grid and time step violate the explicit-scheme CFL limit."""
 
 
-__all__ = ["WeldSimError", "ValidationError", "StabilityError"]
+class AbortError(WeldSimError):
+    """The user cancelled the simulation before it finished."""
+
+
+__all__ = ["WeldSimError", "ValidationError", "StabilityError", "AbortError"]

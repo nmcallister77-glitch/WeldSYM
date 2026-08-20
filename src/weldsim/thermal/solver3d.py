@@ -35,7 +35,7 @@ from typing import Callable, Optional, Sequence
 
 import numpy as np
 
-from ..errors import StabilityError, ValidationError
+from ..errors import AbortError, StabilityError, ValidationError
 from ..keyhole import KEYHOLE_THRESHOLD_INTENSITY, TRANSITION_BAND, peak_intensity
 from ..materials import Material
 from ..types import WeldParams
@@ -66,9 +66,9 @@ KEYHOLE_TIP_TAPER = 0.4
 WOBBLE_SUBSAMPLES_PER_PERIOD = 8
 MAX_WOBBLE_SUBSAMPLES = 16
 
-#: Ceiling on cells x time steps, so a fine mesh over a long weld is refused up
-#: front rather than appearing to hang. Roughly a minute of solve time.
-MAX_CELL_UPDATES = 2_000_000_000
+#: Ceiling on cells x time steps. Raised to allow overnight/multi-day runs while
+#: still catching accidental huge cases before they allocate or loop.
+MAX_CELL_UPDATES = 1_000_000_000_000_000
 
 
 @dataclass
@@ -365,9 +365,10 @@ def run_3d_thermal(
     emissivity: float = 0.7,
     convection_coefficient: float = 15.0,
     on_progress: Optional[Callable[[float], None]] = None,
+    abort: Optional[Callable[[], bool]] = None,
     store_frames: bool = False,
     frame_interval: float = 0.02,
-    max_frames: int = 200,
+    max_frames: int = 1_000,
 ) -> Solution3D:
     """Run the 3D transient solve and return the fields plus weld geometry.
 
@@ -396,6 +397,8 @@ def run_3d_thermal(
     on_progress : callable | None
         Called with a 0..1 fraction roughly 100 times during the run, for GUI
         progress bars.
+    abort : callable | None
+        If it returns True, the solver stops and raises :class:`AbortError`.
     store_frames : bool
         If True, keep a sequence of 3D temperature snapshots for animation.
     frame_interval : float
@@ -641,6 +644,9 @@ def run_3d_thermal(
         if store_frames and (step + 1) % frame_step == 0:
             T_history.append(T.copy())
             frame_times.append((step + 1) * dt)
+
+        if abort is not None and step % 10 == 0 and abort():
+            raise AbortError("Simulation aborted by user.")
 
         if on_progress is not None and step % max(n_steps // 100, 1) == 0:
             on_progress((step + 1) / n_steps)

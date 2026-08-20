@@ -96,7 +96,7 @@ def test_invalid_geometry_is_rejected(kwargs, message):
 
 def test_a_run_that_would_take_minutes_is_refused_up_front():
     with pytest.raises(ValidationError, match="billion cell updates"):
-        solve(nx=201, ny=201, nz=61, t_end=30.0)
+        solve(nx=201, ny=201, nz=61, t_end=100000.0)
 
 
 def test_energy_is_conserved_without_surface_losses():

@@ -15,9 +15,11 @@ from .thermal.solver3d import Solution3D, run_3d_thermal
 from .types import MaterialParams, WeldParams
 from .weld_path import WeldPath, WobbleParams
 
-#: Bounds on problem size, so a mistyped parameter cannot exhaust memory or run for hours.
-MAX_CELLS = 1_000_000
-MAX_STEPS = 1_000_000
+#: Bounds on problem size. Raised to allow multi-day runs on large RAM machines.
+#: 10 million cells is a 10x increase over the original 1 million while still
+#: rejecting accidental 500 x 500 x 50 test grids and guarding against OOM.
+MAX_CELLS = 10_000_000
+MAX_STEPS = 10_000_000
 
 #: Solvers the high-level API can dispatch to. The 2D thin-plate solve is fast
 #: enough for parameter sweeps; the 3D solve resolves depth, so it is the one
@@ -48,6 +50,7 @@ class ThermalSimulationConfig:
     )
     store_3d_frames: bool = False  # keep 3D temperature snapshots for post-run animation
     frame_interval: float = 0.02  # seconds between stored 3D animation frames
+    max_stored_frames: int = 1_000  # hard cap on stored 3D frames
     phase_change: bool = True  # latent heat, evaporation cap and surface losses
     solver: str = "2d"  # "2d" thin plate or "3d" through-thickness
     nz: int = 17  # grid points through the thickness, 3D solver only
@@ -174,6 +177,7 @@ def validate_config(config: ThermalSimulationConfig) -> None:
 def run_thermal_simulation(
     config: ThermalSimulationConfig,
     on_progress: Callable[[float], None] | None = None,
+    abort: Callable[[], bool] | None = None,
 ) -> Dict[str, Any]:
     """
     Run a transient thermal simulation with a moving heat source.
@@ -185,8 +189,11 @@ def run_thermal_simulation(
     Parameters
     ----------
     on_progress : callable | None
-        Progress callback taking a 0..1 fraction. Only the 3D solver reports
-        progress; the 2D solve is fast enough not to need it.
+        Progress callback taking a 0..1 fraction.
+    abort : callable | None
+        Should return True when the caller wants the simulation to stop. The
+        solver checks this periodically and raises :class:`AbortError` if it
+        returns True.
 
     Returns
     -------
@@ -214,7 +221,7 @@ def run_thermal_simulation(
     phase = _phase_model(config)
 
     if config.solver == "3d":
-        return _run_3d(config, phase, on_progress)
+        return _run_3d(config, phase, on_progress, abort)
 
     x, y, T, T_probe, history = run_2d_fd_thermal(
         nx=config.nx,
@@ -233,6 +240,8 @@ def run_thermal_simulation(
         dwell_temp=solidus,
         extra_dwell_temps=_extra_dwell_temps(config.material),
         phase=phase,
+        on_progress=on_progress,
+        abort=abort,
     )
 
     if config.output_file is not None:
@@ -268,6 +277,7 @@ def _run_3d(
     config: ThermalSimulationConfig,
     phase: PhaseModel | None,
     on_progress: Callable[[float], None] | None,
+    abort: Callable[[], bool] | None,
 ) -> Dict[str, Any]:
     """Run the through-thickness solver and shape its output like the 2D one.
 
@@ -298,8 +308,10 @@ def _run_3d(
         keyhole_taper=config.keyhole_taper,
         extra_dwell_temps=_extra_dwell_temps(material),
         on_progress=on_progress,
+        abort=abort,
         store_frames=config.store_3d_frames,
         frame_interval=config.frame_interval,
+        max_frames=config.max_stored_frames,
     )
 
     surface = solution.T[:, :, 0]

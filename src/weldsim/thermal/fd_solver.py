@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 
-from ..errors import StabilityError, ValidationError
+from ..errors import AbortError, StabilityError, ValidationError
 from ..types import WeldParams, MaterialParams
 from ..weld_path import WeldPath, WobbleParams
 
@@ -133,6 +133,8 @@ def run_2d_fd_thermal(
     dwell_temp: float | None = None,
     extra_dwell_temps: Sequence[float] = (),
     phase: Optional[PhaseModel] = None,
+    on_progress: Callable[[float], None] | None = None,
+    abort: Callable[[], bool] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, ThermalHistory]:
     """
     Run a 2D transient heat conduction simulation on a regular grid.
@@ -290,6 +292,15 @@ def run_2d_fd_thermal(
                     cooling_rate[crossed] = span / dt
 
         T, T_new = T_new, T  # swap
+
+        if abort is not None and step % 10 == 0 and abort():
+            raise AbortError("Simulation aborted by user.")
+
+        if on_progress is not None and step % max(n_steps // 100, 1) == 0:
+            on_progress((step + 1) / n_steps)
+
+    if on_progress is not None:
+        on_progress(1.0)
 
     history = ThermalHistory(
         T_peak=T_peak,
