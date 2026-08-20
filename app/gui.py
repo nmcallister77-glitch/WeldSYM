@@ -1626,6 +1626,50 @@ def _page_thermal_and_wobble():
                 else:
                     st.info("3D animation is only available for 3D through-thickness runs.")
 
+            with st.expander("2D live cross-sections (fast)", expanded=False):
+                solution3d = result.get("solution3d")
+                if solution3d is not None:
+                    st.caption(
+                        "Faster 2D view: top surface, transverse section and longitudinal section."
+                    )
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        live_time_scale = st.slider(
+                            "Playback time scale",
+                            0.1,
+                            20.0,
+                            1.0,
+                            0.1,
+                            key="live_time_scale",
+                        )
+                    with c2:
+                        live_max_frames = st.slider(
+                            "Max frames", 30, 300, 120, 10, key="live_max_frames"
+                        )
+                    show_live_trail = st.checkbox(
+                        "Show frozen trail", value=True, key="show_live_trail"
+                    )
+                    if st.button("Go", key="go_2d_live"):
+                        st.session_state["show_2d_live"] = True
+                    if st.session_state.get("show_2d_live"):
+                        if st.button("Hide 2D live view", key="hide_2d_live"):
+                            st.session_state["show_2d_live"] = False
+                        else:
+                            with st.spinner("Building 2D live view..."):
+                                _show(
+                                    plots.plot_2d_cross_section_animation(
+                                        solution3d,
+                                        material,
+                                        path=st.session_state.get("path"),
+                                        wobble=st.session_state.get("wobble"),
+                                        time_scale=live_time_scale,
+                                        max_frames=int(live_max_frames),
+                                        show_trail=show_live_trail,
+                                    )
+                                )
+                else:
+                    st.info("2D live view is only available for 3D through-thickness runs.")
+
             with st.expander("Temperature profiles", expanded=True):
                 prof1, prof2, prof3 = st.tabs(["Longitudinal", "Transverse", "Probe history"])
                 with prof1:

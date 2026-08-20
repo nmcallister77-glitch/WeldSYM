@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from weldsim.calibration import Comparison
 from weldsim.materials import Material
@@ -669,6 +670,285 @@ def plot_weld_3d_animation(
                                     "duration": frame_ms,
                                     "easing": "linear",
                                 },
+                                "fromcurrent": True,
+                                "mode": "immediate",
+                            },
+                        ],
+                    },
+                    {
+                        "label": "⏸ Pause",
+                        "method": "animate",
+                        "args": [
+                            [None],
+                            {
+                                "frame": {"duration": 0, "redraw": False},
+                                "mode": "immediate",
+                                "transition": {"duration": 0},
+                            },
+                        ],
+                    },
+                ],
+            }
+        ],
+        sliders=[
+            {
+                "active": 0,
+                "yanchor": "top",
+                "xanchor": "left",
+                "x": 0.15,
+                "y": -0.05,
+                "steps": slider_steps,
+            }
+        ],
+    )
+    return fig
+
+
+def plot_2d_cross_section_animation(
+    solution: Solution3D,
+    material: Material,
+    path: WeldPath | None = None,
+    wobble: WobbleParams | None = None,
+    time_scale: float = 1.0,
+    max_frames: int = 120,
+    show_trail: bool = True,
+) -> go.Figure:
+    """Fast 2D live view: top surface, transverse, and longitudinal cross-sections."""
+    if not solution.T_history:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No 3D animation frames were stored for this run.",
+            showarrow=False,
+            font=dict(size=14),
+        )
+        return fig
+
+    n_frames = len(solution.T_history)
+    if n_frames > max_frames:
+        stride = max(1, n_frames // max_frames)
+        if n_frames // stride > max_frames:
+            stride += 1
+        frame_times = solution.frame_times[::stride]
+        T_history = solution.T_history[::stride]
+    else:
+        frame_times = list(solution.frame_times)
+        T_history = list(solution.T_history)
+
+    if len(frame_times) < 2:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="Not enough animation frames for a 2D playback.",
+            showarrow=False,
+            font=dict(size=14),
+        )
+        return fig
+
+    frame_dt = float(frame_times[1] - frame_times[0])
+    if time_scale >= 1.0:
+        play_stride = max(1, int(round(time_scale)))
+        frame_ms = max(20, int(play_stride * frame_dt * 1000.0 / time_scale))
+    else:
+        play_stride = 1
+        frame_ms = max(20, int(frame_dt * 1000.0 / time_scale))
+
+    if play_stride > 1:
+        frame_times = frame_times[::play_stride]
+        T_history = T_history[::play_stride]
+
+    x = np.asarray(solution.x) * 1e3
+    y = np.asarray(solution.y) * 1e3
+    z = np.asarray(solution.z) * 1e3
+    t_peak_max = float(solution.T_peak.max())
+
+    dx = x[1] - x[0]
+    dy = y[1] - y[0]
+
+    def _beam_xy(t: float) -> tuple[float, float]:
+        if path is None:
+            return 0.0, 0.0
+        t_clip = float(min(t, path.duration))
+        xb, yb = beam_at_time(path, wobble or WobbleParams(0.0, 0.0, "circle"), t_clip)
+        return float(xb * 1e3), float(yb * 1e3)
+
+    def _cross_sections(
+        T: np.ndarray, t: float
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int, int]:
+        xb, yb = _beam_xy(t)
+        i = min(max(int(round(xb / dx)), 0), len(x) - 1)
+        j = min(max(int(round(yb / dy)), 0), len(y) - 1)
+        top = T[:, :, 0]
+        trans = T[i, :, :].T
+        longi = T[:, j, :].T
+        return top, trans, longi, i, j
+
+    # Build the base figure with three subplots.
+    fig = make_subplots(
+        rows=1,
+        cols=3,
+        subplot_titles=("Top view", "Transverse cross-section", "Longitudinal cross-section"),
+        horizontal_spacing=0.08,
+    )
+
+    T0_top, T0_trans, T0_longi, _, _ = _cross_sections(T_history[0], frame_times[0])
+    fig.add_trace(
+        go.Heatmap(
+            x=x,
+            y=y,
+            z=T0_top.T,
+            colorscale="Hot",
+            zmin=material.T0,
+            zmax=t_peak_max,
+            showscale=False,
+            hovertemplate="x %{x:.2f} mm<br>y %{y:.2f} mm<br>T %{z:.0f} K<extra></extra>",
+            name="top",
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Heatmap(
+            x=y,
+            y=z,
+            z=T0_trans,
+            colorscale="Hot",
+            zmin=material.T0,
+            zmax=t_peak_max,
+            showscale=False,
+            hovertemplate="y %{x:.2f} mm<br>z %{y:.2f} mm<br>T %{z:.0f} K<extra></extra>",
+            name="transverse",
+        ),
+        row=1,
+        col=2,
+    )
+    fig.add_trace(
+        go.Heatmap(
+            x=x,
+            y=z,
+            z=T0_longi,
+            colorscale="Hot",
+            zmin=material.T0,
+            zmax=t_peak_max,
+            showscale=False,
+            hovertemplate="x %{x:.2f} mm<br>z %{y:.2f} mm<br>T %{z:.0f} K<extra></extra>",
+            name="longitudinal",
+        ),
+        row=1,
+        col=3,
+    )
+
+    # Beam markers on each subplot.
+    xb0, yb0 = _beam_xy(0.0)
+    fig.add_trace(
+        go.Scatter(
+            x=[xb0],
+            y=[yb0],
+            mode="markers",
+            marker=dict(color="cyan", size=10, symbol="x"),
+            name="beam top",
+            hoverinfo="skip",
+            showlegend=False,
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[yb0],
+            y=[0.0],
+            mode="markers",
+            marker=dict(color="cyan", size=10, symbol="x"),
+            name="beam trans",
+            hoverinfo="skip",
+            showlegend=False,
+        ),
+        row=1,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[xb0],
+            y=[0.0],
+            mode="markers",
+            marker=dict(color="cyan", size=10, symbol="x"),
+            name="beam long",
+            hoverinfo="skip",
+            showlegend=False,
+        ),
+        row=1,
+        col=3,
+    )
+
+    dynamic_indices = list(range(len(fig.data)))
+
+    frames: list[go.Frame] = []
+    T_peak_so_far = T_history[0].copy()
+    for t, T in zip(frame_times, T_history):
+        if show_trail:
+            np.maximum(T_peak_so_far, T, out=T_peak_so_far)
+            T_src = T_peak_so_far
+        else:
+            T_src = T
+
+        top, trans, longi, _, _ = _cross_sections(T_src, t)
+        xb, yb = _beam_xy(t)
+        frame_data = [
+            go.Heatmap(z=top.T),
+            go.Heatmap(z=trans, x=y, y=z),
+            go.Heatmap(z=longi, x=x, y=z),
+            go.Scatter(x=[xb], y=[yb]),
+            go.Scatter(x=[yb], y=[0.0]),
+            go.Scatter(x=[xb], y=[0.0]),
+        ]
+        frames.append(
+            go.Frame(
+                name=f"t={t:.3f}",
+                traces=dynamic_indices,
+                data=frame_data,
+            )
+        )
+
+    slider_steps = [
+        {
+            "args": [
+                [f"t={t:.3f}"],
+                {
+                    "frame": {"duration": 0, "redraw": True},
+                    "mode": "immediate",
+                    "transition": {"duration": 0},
+                },
+            ],
+            "label": f"{t:.2f}",
+            "method": "animate",
+        }
+        for t in frame_times
+    ]
+
+    for fr in frames:
+        fig.add_frame(fr)
+    fig.update_layout(
+        **_default_layout(f"2D live cross-sections — {len(frame_times)} frames"),
+        xaxis=dict(title="x (mm)", constrain="domain"),
+        yaxis=dict(title="y (mm)", scaleanchor="x", scaleratio=1, constrain="domain"),
+        xaxis2=dict(title="y (mm)"),
+        yaxis2=dict(title="z (mm)", autorange="reversed"),
+        xaxis3=dict(title="x (mm)"),
+        yaxis3=dict(title="z (mm)", autorange="reversed"),
+        updatemenus=[
+            {
+                "type": "buttons",
+                "direction": "left",
+                "x": 0.1,
+                "y": 1.15,
+                "showactive": False,
+                "buttons": [
+                    {
+                        "label": "▶ Go",
+                        "method": "animate",
+                        "args": [
+                            None,
+                            {
+                                "frame": {"duration": frame_ms, "redraw": True},
+                                "transition": {"duration": frame_ms, "easing": "linear"},
                                 "fromcurrent": True,
                                 "mode": "immediate",
                             },
