@@ -48,8 +48,12 @@ and PyYAML, with Matplotlib/Streamlit in the `gui` extra and PyVista/Gmsh in `cf
 
 The explicit step is memory-bound, so the loop works on preallocated buffers. Cost is
 `nx*ny*nz*steps`, and the stable step scales with the *smallest* spacing — usually `dz` —
-so raising `nz` is expensive twice over. `MAX_CELL_UPDATES` in `solver3d.py` rejects runs
-that would take minutes, and the GUI shows an estimated run time before you press run.
+so raising `nz` is expensive twice over. `MAX_CELL_UPDATES` in `solver3d.py` caps accidental
+runaway cases while still allowing long/multi-day runs.
+
+If `numba` is installed, the 3D conduction stencil is compiled (JIT) for a large speed-up
+over the pure-NumPy path; the pure-NumPy path is still used as a fallback. Install with
+`pip install weldsim[fast]`.
 
 ## Key files
 

@@ -49,6 +49,7 @@ from .fd_solver import (
     ThermalHistory,
     weld_position_at_time,
 )
+from ._numba_step import HAS_NUMBA, numba_step
 
 #: Fraction of the explicit stability limit used when the time step is chosen
 #: automatically. Latent heat and the evaporation cap both add stiffness, so a
@@ -463,11 +464,14 @@ def run_3d_thermal(
     t_cross_lo = np.full((nx, ny, nz), np.nan)
     cooling_rate = np.full((nx, ny, nz), np.nan)
     dwell_above = np.zeros((nx, ny, nz))
-    extra_dwell = {
-        float(temp): np.zeros((nx, ny, nz))
-        for temp in extra_dwell_temps
-        if not math.isclose(float(temp), dwell_threshold)
-    }
+    extra_thresholds_list = [
+        float(temp) for temp in extra_dwell_temps if not math.isclose(float(temp), dwell_threshold)
+    ]
+    n_extra = len(extra_thresholds_list)
+    extra_dwell_stack = np.zeros((n_extra, nx, ny, nz)) if n_extra else np.empty((0, nx, ny, nz))
+    extra_dwell_arrs = [extra_dwell_stack[e] for e in range(n_extra)]
+    extra_dwell = dict(zip(extra_thresholds_list, extra_dwell_arrs))
+    extra_thresholds_arr = np.array(extra_thresholds_list, dtype=np.float64)
 
     # Only the neighbourhood of the beam gets a source term, which keeps the
     # per-step cost proportional to the pool rather than to the plate.
@@ -519,17 +523,27 @@ def run_3d_thermal(
 
     cell_volume = dx * dy * dz
     two_sigma2 = 2.0 * weld.sigma**2
-    padded = np.full((nx + 2, ny + 2, nz + 2), T0)
+
+    use_numba = HAS_NUMBA
 
     # The step is memory-bound, so every field it touches is allocated once and
     # reused; temporaries in the loop cost more than the arithmetic does.
     Q = np.zeros((nx, ny, nz))
-    lap = np.empty((nx, ny, nz))
-    buf = np.empty((nx, ny, nz))
-    mask = np.empty((nx, ny, nz), dtype=bool)
-    loss = np.zeros((nx, ny, nz))
     inv_dx2, inv_dy2, inv_dz2 = 1.0 / dx**2, 1.0 / dy**2, 1.0 / dz**2
-    diagonal = 2.0 * (inv_dx2 + inv_dy2 + inv_dz2)
+    if use_numba:
+        padded = None
+        lap = None
+        buf = None
+        mask = None
+        loss = None
+        diagonal = 0.0
+    else:
+        padded = np.full((nx + 2, ny + 2, nz + 2), T0)
+        lap = np.empty((nx, ny, nz))
+        buf = np.empty((nx, ny, nz))
+        mask = np.empty((nx, ny, nz), dtype=bool)
+        loss = np.zeros((nx, ny, nz))
+        diagonal = 2.0 * (inv_dx2 + inv_dy2 + inv_dz2)
 
     T_history: list[np.ndarray] = []
     frame_times: list[float] = []
@@ -572,62 +586,98 @@ def run_3d_thermal(
                         Q[i0:i1, j0:j1, :] += (keyhole_share / sub_samples) * radial / total
 
         # --- explicit conduction update ---------------------------------------
-        # The top and bottom faces are mirrored, so the whole thickness — faces
-        # included — is updated in one sweep and heat can still spread sideways
-        # along the surface the beam is heating.
-        padded[1:-1, 1:-1, 1:-1] = T
-        padded[1:-1, 1:-1, 0] = T[:, :, 1]
-        padded[1:-1, 1:-1, -1] = T[:, :, -2]
-        np.add(padded[2:, 1:-1, 1:-1], padded[:-2, 1:-1, 1:-1], out=lap)
-        lap *= inv_dx2
-        np.add(padded[1:-1, 2:, 1:-1], padded[1:-1, :-2, 1:-1], out=buf)
-        buf *= inv_dy2
-        lap += buf
-        np.add(padded[1:-1, 1:-1, 2:], padded[1:-1, 1:-1, :-2], out=buf)
-        buf *= inv_dz2
-        lap += buf
-        np.multiply(T, diagonal, out=buf)
-        lap -= buf
-
-        # Surface losses to the air, on the half-cell control volumes at the
-        # mirrored faces.
-        for iz in (0, nz - 1):
-            face = T[:, :, iz]
-            flux = convection_coefficient * (face - T0)
-            if emissivity > 0:
-                flux = flux + emissivity * SIGMA_SB * (face**4 - T0**4)
-            loss[:, :, iz] = 2.0 * flux / dz
-
-        if phase is None:
-            rho_cp = rho * cp
+        if use_numba:
+            numba_step(
+                T,
+                T_new,
+                T_peak,
+                Q,
+                dwell_above,
+                t_cross_hi,
+                t_cross_lo,
+                cooling_rate,
+                extra_dwell_stack,
+                extra_thresholds_arr,
+                nx,
+                ny,
+                nz,
+                dt,
+                t,
+                k,
+                rho,
+                cp,
+                inv_dx2,
+                inv_dy2,
+                inv_dz2,
+                T0,
+                dz,
+                convection_coefficient,
+                emissivity,
+                SIGMA_SB,
+                phase is not None,
+                solidus_T if phase is not None else 0.0,
+                phase.liquidus if phase is not None else 0.0,
+                phase.latent_heat if phase is not None else 0.0,
+                phase.boiling if (phase is not None and phase.boiling is not None) else 0.0,
+                dwell_threshold,
+                T85_UPPER,
+                T85_LOWER,
+            )
+            # Dirichlet sides at ambient (interior already written by numba_step).
+            T_new[0, :, :] = T0
+            T_new[-1, :, :] = T0
+            T_new[:, 0, :] = T0
+            T_new[:, -1, :] = T0
         else:
-            rho_cp = rho * phase.apparent_capacity(T, cp)
-        lap *= k
-        lap += Q
-        lap -= loss
-        lap *= dt / rho_cp
-        np.add(T, lap, out=T_new)
+            # Pure NumPy path (kept for environments without numba).
+            padded[1:-1, 1:-1, 1:-1] = T
+            padded[1:-1, 1:-1, 0] = T[:, :, 1]
+            padded[1:-1, 1:-1, -1] = T[:, :, -2]
+            np.add(padded[2:, 1:-1, 1:-1], padded[:-2, 1:-1, 1:-1], out=lap)
+            lap *= inv_dx2
+            np.add(padded[1:-1, 2:, 1:-1], padded[1:-1, :-2, 1:-1], out=buf)
+            buf *= inv_dy2
+            lap += buf
+            np.add(padded[1:-1, 1:-1, 2:], padded[1:-1, 1:-1, :-2], out=buf)
+            buf *= inv_dz2
+            lap += buf
+            np.multiply(T, diagonal, out=buf)
+            lap -= buf
 
-        # The surrounding plate is treated as an infinite sink at ambient on the
-        # four cut faces.
-        T_new[0, :, :] = T0
-        T_new[-1, :, :] = T0
-        T_new[:, 0, :] = T0
-        T_new[:, -1, :] = T0
+            for iz in (0, nz - 1):
+                face = T[:, :, iz]
+                flux = convection_coefficient * (face - T0)
+                if emissivity > 0:
+                    flux = flux + emissivity * SIGMA_SB * (face**4 - T0**4)
+                loss[:, :, iz] = 2.0 * flux / dz
 
-        if phase is not None and phase.boiling is not None:
-            np.minimum(T_new, phase.boiling, out=T_new)
+            if phase is None:
+                rho_cp = rho * cp
+            else:
+                rho_cp = rho * phase.apparent_capacity(T, cp)
+            lap *= k
+            lap += Q
+            lap -= loss
+            lap *= dt / rho_cp
+            np.add(T, lap, out=T_new)
 
-        # --- thermal-cycle bookkeeping ---------------------------------------
-        np.maximum(T_peak, T_new, out=T_peak)
-        np.greater(T_new, dwell_threshold, out=mask)
-        np.add(dwell_above, dt, out=dwell_above, where=mask)
-        for threshold, dwell in extra_dwell.items():
-            np.greater(T_new, threshold, out=mask)
-            np.add(dwell, dt, out=dwell, where=mask)
+            T_new[0, :, :] = T0
+            T_new[-1, :, :] = T0
+            T_new[:, 0, :] = T0
+            T_new[:, -1, :] = T0
+
+            if phase is not None and phase.boiling is not None:
+                np.minimum(T_new, phase.boiling, out=T_new)
+
+            np.maximum(T_peak, T_new, out=T_peak)
+            np.greater(T_new, dwell_threshold, out=mask)
+            np.add(dwell_above, dt, out=dwell_above, where=mask)
+            for threshold, dwell in extra_dwell.items():
+                np.greater(T_new, threshold, out=mask)
+                np.add(dwell, dt, out=dwell, where=mask)
         # Nothing can cross 800/500 C while the whole plate is below 500 C, which
         # is most of the run for a fast pass on a big plate.
-        if T.max() >= T85_LOWER:
+        if not use_numba and T.max() >= T85_LOWER:
             for level, crossings in ((T85_UPPER, t_cross_hi), (T85_LOWER, t_cross_lo)):
                 np.less(T_new, level, out=mask)
                 mask &= T >= level
