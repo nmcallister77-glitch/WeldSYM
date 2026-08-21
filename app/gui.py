@@ -189,6 +189,10 @@ def _process_run_queue() -> None:
             if config.path is not None:
                 st.session_state["thermal_x1"] = config.path.end[0]
                 st.session_state["thermal_y1"] = config.path.end[1]
+            # Old animation figure is from a different run; force a rebuild.
+            st.session_state.pop("fig_3d_anim", None)
+            st.session_state.pop("anim_settings_hash", None)
+            st.session_state["show_3d_animation"] = False
             _append_run_log(
                 {
                     "time": datetime.now().isoformat(),
@@ -1576,6 +1580,11 @@ def _page_thermal_and_wobble():
             with st.expander("3D weld animation", expanded=False):
                 solution3d = result.get("solution3d")
                 if solution3d is not None:
+                    st.caption(
+                        "Built from pre-solved frames. Click Build once, then Replay as many "
+                        "times as you like. Lower Volume surfaces / Max frames for smoother "
+                        "playback."
+                    )
                     c1, c2 = st.columns(2)
                     with c1:
                         anim_time_scale = st.slider(
@@ -1595,34 +1604,62 @@ def _page_thermal_and_wobble():
                     c3, c4 = st.columns(2)
                     with c3:
                         anim_max_frames = st.slider(
-                            "Max frames", 30, 300, 120, 10, key="anim_max_frames"
+                            "Max frames", 30, 300, 60, 10, key="anim_max_frames"
                         )
                     with c4:
                         anim_surface_count = st.slider(
-                            "Volume surfaces", 2, 30, 8, 1, key="anim_surface_count"
+                            "Volume surfaces", 1, 10, 4, 1, key="anim_surface_count"
                         )
                     show_trail = st.checkbox("Show frozen trail", value=True, key="anim_show_trail")
-                    if st.button("Go", key="go_3d_animation"):
+
+                    anim_settings = (
+                        float(anim_time_scale),
+                        str(anim_heat_filter),
+                        int(anim_max_frames),
+                        int(anim_surface_count),
+                        bool(show_trail),
+                    )
+                    cached_fig = st.session_state.get("fig_3d_anim")
+                    cached_hash = st.session_state.get("anim_settings_hash")
+                    cache_ok = cached_fig is not None and cached_hash == anim_settings
+
+                    b1, b2 = st.columns(2)
+                    with b1:
+                        build = st.button("Build 3D animation", key="build_3d_animation")
+                    with b2:
+                        replay = st.button(
+                            "Replay",
+                            key="replay_3d_animation",
+                            disabled=not cache_ok,
+                        )
+                    hide = st.button("Hide 3D animation", key="hide_3d_animation")
+                    if hide:
+                        st.session_state["show_3d_animation"] = False
+                        st.session_state.pop("fig_3d_anim", None)
+                        st.session_state.pop("anim_settings_hash", None)
+
+                    if build or (replay and not cache_ok):
                         st.session_state["show_3d_animation"] = True
-                    if st.session_state.get("show_3d_animation"):
-                        if st.button("Hide animation", key="hide_3d_animation"):
-                            st.session_state["show_3d_animation"] = False
-                        else:
-                            with st.spinner("Building 3D animation..."):
-                                _show(
-                                    plots.plot_weld_3d_animation(
-                                        solution3d,
-                                        material,
-                                        path=st.session_state.get("path"),
-                                        wobble=st.session_state.get("wobble"),
-                                        top_thickness=result.get("top_thickness"),
-                                        time_scale=anim_time_scale,
-                                        max_frames=int(anim_max_frames),
-                                        heat_filter=str(anim_heat_filter),
-                                        surface_count=int(anim_surface_count),
-                                        show_trail=show_trail,
-                                    )
-                                )
+                        with st.spinner("Building 3D animation..."):
+                            fig = plots.plot_weld_3d_animation(
+                                solution3d,
+                                material,
+                                path=st.session_state.get("path"),
+                                wobble=st.session_state.get("wobble"),
+                                top_thickness=result.get("top_thickness"),
+                                time_scale=anim_time_scale,
+                                max_frames=int(anim_max_frames),
+                                heat_filter=str(anim_heat_filter),
+                                surface_count=int(anim_surface_count),
+                                show_trail=show_trail,
+                            )
+                            st.session_state["fig_3d_anim"] = fig
+                            st.session_state["anim_settings_hash"] = anim_settings
+                        _show(fig)
+                    elif (replay and cache_ok) or (
+                        st.session_state.get("show_3d_animation") and cache_ok
+                    ):
+                        _show(cached_fig)
                 else:
                     st.info("3D animation is only available for 3D through-thickness runs.")
 
