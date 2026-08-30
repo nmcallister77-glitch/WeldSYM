@@ -923,8 +923,7 @@ def plot_2d_cross_section_animation(
         for t in frame_times
     ]
 
-    for fr in frames:
-        fig.add_frame(fr)
+    fig.frames = frames
     fig.update_layout(
         **_default_layout(f"2D live cross-sections — {len(frame_times)} frames"),
         xaxis=dict(title="x (mm)", constrain="domain"),
