@@ -1205,7 +1205,13 @@ button svg {
     top: 25px;
   }
   .scene-container {
-    inset: 116px 0 290px;
+    inset: 116px 0 330px;
+  }
+  .scene-label {
+    padding: 3px 5px;
+  }
+  .scene-label small {
+    display: none;
   }
   .camera-presets {
     top: 80px;
@@ -1371,7 +1377,7 @@ button svg {
     width: 9px;
   }
   .scene-container {
-    inset: 116px 0 290px;
+    inset: 116px 0 330px;
   }
   .viewport-heading h1 {
     font-size: 23px;

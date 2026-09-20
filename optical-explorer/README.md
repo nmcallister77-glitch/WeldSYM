@@ -32,6 +32,8 @@ Generated output is not committed; CI uploads it as the `ldd-optical-explorer` a
 - Left-drag to orbit, right-drag to pan, scroll to zoom (touch: one finger orbit,
   two fingers pan/pinch). Camera presets focus on the scanner or cutaway keyhole.
 - Toggle labels; reset the camera independently of playback.
+- On narrow screens labels focus on the current stage; camera presets bring the
+  scanner or keyhole closer without covering the model with annotations.
 - Space toggles playback and R resets when an input or button is not focused.
 - Phase 04 plots depth, the trailing average, and an instantaneous 3D dimension.
   Save CSV exports the visible samples.

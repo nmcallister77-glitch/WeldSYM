@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { ComponentRef } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Edges, Html, Line, OrbitControls, RoundedBox } from "@react-three/drei";
 import {
   CatmullRomCurve3,
@@ -433,11 +433,12 @@ export type CameraView = "overview" | "scanner" | "keyhole";
 
 function CameraRig({ view, resetKey }: { view: CameraView; resetKey: number }) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
+  const compact = useThree((state) => state.size.width < 600);
   useEffect(() => {
     if (!controls.current) return;
     const positions = {
-      overview: [12.5, 10, 18.5],
-      scanner: [9, 8, 11],
+      overview: compact ? [8, 7, 14] : [12.5, 10, 18.5],
+      scanner: compact ? [6, 5, 8] : [9, 8, 11],
       keyhole: [5.6, 1.6, 8.5],
     } as const;
     const targets = {
@@ -448,7 +449,7 @@ function CameraRig({ view, resetKey }: { view: CameraView; resetKey: number }) {
     controls.current.object.position.fromArray(positions[view]);
     controls.current.target.fromArray(targets[view]);
     controls.current.update();
-  }, [view, resetKey]);
+  }, [view, resetKey, compact]);
   return (
     <OrbitControls
       ref={controls}
@@ -472,12 +473,15 @@ function Assembly({
   view: CameraView;
 }) {
   const phase = phaseAt(time);
+  const compact = useThree((state) => state.size.width < 600);
   const signal = signalAt(time);
   const path = measurementPath(time, signal.active ? signal.sample.depth : 0);
   const [sensor, dichroic, xMirror, yMirror, lens, surface, tip] = path;
   const output: Point[] = [COIL[COIL.length - 1], [-1.5, 3.45, 0], dichroic];
   const sourceLabels = labels && view === "overview";
-  const scannerLabels = labels && view !== "keyhole" && phase >= 2;
+  const scannerLabels =
+    labels && view !== "keyhole" && phase >= 2 &&
+    (!compact || view === "scanner" || phase === 2);
   return (
     <group>
       <gridHelper args={[30, 30, "#383d40", "#303538"]} position={[0, -3, 0]} />
@@ -655,19 +659,19 @@ function Assembly({
         position={[-7, 4.7, 0]}
         title="PUMP DIODES"
         subtitle="976 nm · optical pumping"
-        active={sourceLabels}
+        active={sourceLabels && (!compact || phase === 0)}
       />
       <Label
         position={[-5.1, 1, 1.2]}
         title="FIBER COMBINER"
         subtitle="Multiple inputs → one fiber"
-        active={sourceLabels}
+        active={sourceLabels && (!compact || phase === 0)}
       />
       <Label
         position={[-3.1, 4.1, 0]}
         title="Yb-DOPED FIBER"
         subtitle="Double-clad gain medium"
-        active={sourceLabels && phase >= 1}
+        active={sourceLabels && phase >= 1 && (!compact || phase === 1)}
       />
       <Label
         position={[-0.3, 4.9, -2.3]}
@@ -686,13 +690,13 @@ function Assembly({
         position={[2.1, 4.3, 0.1]}
         title="X GALVO"
         subtitle="First steering axis"
-        active={scannerLabels}
+        active={scannerLabels && !compact}
       />
       <Label
         position={[4, 5.25, 0]}
         title="Y GALVO"
         subtitle="Second steering axis"
-        active={scannerLabels}
+        active={scannerLabels && !compact}
       />
       <Label
         position={[5.75, 2.5, 0]}
@@ -704,7 +708,7 @@ function Assembly({
         position={[4.3, -3.35, 1]}
         title="METAL WORKPIECE"
         subtitle="Cutaway · depth exaggerated"
-        active={labels && phase >= 3}
+        active={labels && phase >= 3 && !compact}
       />
     </group>
   );
