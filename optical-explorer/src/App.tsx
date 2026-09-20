@@ -126,6 +126,43 @@ class SceneBoundary extends Component<
   }
 }
 
+function ReturnMap({ time }: { time: number }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const context = canvas.current?.getContext("2d");
+    if (!context) return;
+    const image = context.createImageData(241, 48);
+    signalAt(time).history.forEach((sample, x) => {
+      for (let y = 0; y < 48; y += 1) {
+        const depth = (y / 47) * 1600;
+        const floor = Math.exp(-(((depth - sample.depth) / 80) ** 2));
+        const surface = 0.45 * Math.exp(-((depth / 50) ** 2));
+        const texture = 0.65 + 0.35 * Math.sin(x * 7.3 + y * 5.1) ** 2;
+        const intensity = Math.min(1, (floor + surface) * texture);
+        const pixel = (y * 241 + x) * 4;
+        image.data[pixel] = 60 + intensity * 195;
+        image.data[pixel + 1] = 12 + intensity ** 2 * 220;
+        image.data[pixel + 2] = 60 - intensity * 35;
+        image.data[pixel + 3] = 255;
+      }
+    });
+    context.putImageData(image, 0, 0);
+  }, [time]);
+  return (
+    <div className="return-map">
+      <span>Return intensity · illustrative</span>
+      <canvas
+        ref={canvas}
+        width={241}
+        height={48}
+        role="img"
+        aria-label="Synthetic return intensity: time runs left to right, depth increases downward from 0 to 1600 micrometers. The bright band tracks the same keyhole depth."
+      />
+      <small>0 → 120 ms · depth increases downward</small>
+    </div>
+  );
+}
+
 function DepthChart({ time, playing }: { time: number; playing: boolean }) {
   const signal = signalAt(time);
   const { sample, active, history } = signal;
@@ -135,10 +172,10 @@ function DepthChart({ time, playing }: { time: number; playing: boolean }) {
       aria-label="Live LDD depth measurements"
     >
       <div className="chart-heading">
-        <span className="eyebrow">LDD DEPTH SIGNAL</span>
+        <span className="eyebrow">Live depth</span>
         <span className={`signal-status ${active && playing ? "live" : ""}`}>
           <i />
-          {active ? (playing ? "ACQUIRING" : "PAUSED") : "STANDBY"}
+          {active ? (playing ? "Reading" : "Paused") : "Waiting for the weld"}
         </span>
       </div>
       <div className="depth-values">
@@ -243,6 +280,7 @@ function DepthChart({ time, playing }: { time: number; playing: boolean }) {
         </span>
         <span>Time (ms)</span>
       </div>
+      <ReturnMap time={time} />
     </section>
   );
 }
@@ -428,7 +466,7 @@ export default function App() {
         <a
           className="brand"
           href="#"
-          aria-label="ICI Optical Systems Lab home"
+          aria-label="Laser sandbox home"
           onClick={(event) => {
             event.preventDefault();
             reset();
@@ -436,23 +474,12 @@ export default function App() {
             setResetKey((key) => key + 1);
           }}
         >
-          <span className="brand-mark">
-            <i />
-            <i />
-            <i />
-          </span>
-          <strong>
-            ICI<span> / </span>
-          </strong>
-          <span className="brand-name">OPTICAL SYSTEMS LAB</span>
+          <strong>Laser sandbox</strong>
+          <span className="brand-name">let’s see what’s going on inside</span>
         </a>
-        <nav className="top-nav" aria-label="Application">
-          <span className="nav-selected">Interactive explainer</span>
-          <span className="nav-index">EXPERIMENT 001</span>
-        </nav>
         <button className="guide-button" onClick={() => setGuide(true)}>
           <Icon name="help" size={16} />
-          <span>How to explore</span>
+          <span>Controls &amp; a few notes</span>
         </button>
       </header>
 
@@ -462,11 +489,14 @@ export default function App() {
           aria-label="Interactive 3D optical system"
         >
           <div className="viewport-heading">
-            <span className="eyebrow">
-              <i className="lime-dot" /> LIVE OPTICAL MODEL
-            </span>
-            <h1>From photon to precision.</h1>
-            <p>Fiber laser × inline coherent imaging</p>
+            <h1>
+              {view === "overview"
+                ? "Follow the beams."
+                : view === "scanner"
+                  ? "Inside the scanner."
+                  : "A slice through the weld."}
+            </h1>
+            <p>Grab the model. Move around. Scrub back and forth.</p>
           </div>
           <div className="scene-container">
             <SceneBoundary>
@@ -531,11 +561,11 @@ export default function App() {
             </span>
           </div>
           <div className="interaction-hint">
-            <span>↔</span> DRAG TO ORBIT <b>·</b> SCROLL TO ZOOM
+            <span>↔</span> Drag to orbit <b>·</b> scroll to zoom
           </div>
           <DepthChart time={time} playing={playing} />
           <div className="viewport-corner">
-            ILLUSTRATIVE GEOMETRY / NOT TO SCALE
+            Shapes and depth exaggerated to make things visible
           </div>
         </section>
 
@@ -553,7 +583,7 @@ export default function App() {
               className={tab === "journey" ? "active" : ""}
               onClick={() => setTab("journey")}
             >
-              The journey
+              What’s happening
             </button>
             <button
               role="tab"
@@ -563,7 +593,7 @@ export default function App() {
               className={tab === "principle" ? "active" : ""}
               onClick={() => setTab("principle")}
             >
-              The principle
+              How LDD works
             </button>
           </div>
           <div
@@ -588,7 +618,7 @@ export default function App() {
                     <Icon name="focus" size={21} />
                   </span>
                   <div>
-                    <span className="eyebrow">IN FOCUS</span>
+                    <span className="eyebrow">Look here</span>
                     <strong>{current.focus}</strong>
                   </div>
                   <span className="focus-pulse" />
@@ -604,7 +634,7 @@ export default function App() {
                   ))}
                 </div>
                 <div className="mechanism">
-                  <span className="eyebrow">WHAT’S HAPPENING</span>
+                  <span className="eyebrow">A closer look</span>
                   <h3>{current.mechanism}</h3>
                   <p>{current.detail}</p>
                 </div>
@@ -618,11 +648,11 @@ export default function App() {
                   <span>
                     {phase < 3 ? (
                       <>
-                        UP NEXT<strong>{PHASES[phase + 1].title}</strong>
+                        Next<strong>{PHASES[phase + 1].title}</strong>
                       </>
                     ) : (
                       <>
-                        EXPLORE AGAIN<strong>Back to the source</strong>
+                        Again?<strong>Back to the diodes</strong>
                       </>
                     )}
                   </span>
@@ -631,10 +661,9 @@ export default function App() {
               </>
             ) : (
               <>
-                <span className="eyebrow">MEASURE WHILE YOU PROCESS</span>
+                <span className="eyebrow">The cyan beam</span>
                 <h2>
-                  A second beam.
-                  <br />A deeper view.
+                  How do we know<br />how deep it is?
                 </h2>
                 <p className="phase-description">
                   Inline coherent imaging measures a keyhole through the very
@@ -687,7 +716,7 @@ export default function App() {
                   }}
                 >
                   <span>
-                    SEE IT IN ACTION<strong>Explore the depth signal</strong>
+                    Try it<strong>Watch the depth change</strong>
                   </span>
                   <Icon name="arrow" />
                 </button>
@@ -695,8 +724,7 @@ export default function App() {
             )}
           </div>
           <div className="inspector-footer">
-            <span className="model-dot" />
-            Educational model<span>v1.0</span>
+            Synthetic signal · just for exploring the idea
           </div>
         </aside>
       </main>
@@ -734,8 +762,7 @@ export default function App() {
             </span>
           </div>
           <div className="timeline-caption">
-            <span className="eyebrow">THE OPTICAL JOURNEY</span>
-            <span>Four stages. One connected system.</span>
+            <span>Jump to a stage, or drag the timeline.</span>
           </div>
           <button
             className="export-button"
@@ -748,7 +775,7 @@ export default function App() {
             }
           >
             <Icon name="download" size={15} />
-            <span>Export signal</span>
+            <span>Save CSV</span>
           </button>
         </div>
         <div className="scrubber-wrap">
@@ -806,12 +833,11 @@ export default function App() {
           ))}
         </div>
         <div className="bottom-note">
-          <span>SIMULATED LIGHT. REAL PRINCIPLES.</span>
+          <span>Orange makes the weld. Cyan measures it.</span>
           <span>
             Depth signal: procedural · Acquisition: 2 kHz · Display slowed for
             clarity
           </span>
-          <span>ICI / LDD EXPLORER</span>
         </div>
       </footer>
       {guide && <Guide onClose={() => setGuide(false)} />}

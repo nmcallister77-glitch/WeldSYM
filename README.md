@@ -8,7 +8,7 @@ Both solvers ship inside the Python package: a fast 2D thin-plate solve for scre
 
 ### Interactive optics explainer
 
-The standalone [ICI / LDD Optical Systems Lab](optical-explorer/README.md) shows
+The standalone [Laser sandbox](optical-explorer/README.md) shows
 the fiber laser, scanner, and synchronized keyhole depth signal in an interactive
 3D web app. Build it into one offline-playable HTML file with
 `npm --prefix optical-explorer run build` after installing its dependencies.

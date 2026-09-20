@@ -10,8 +10,8 @@ export const PHASES = [
     end: 6,
     title: "Photon generation",
     short: "Pump",
-    eyebrow: "01 / THE ENERGY SOURCE",
-    heading: "It starts with\n a photon.",
+    eyebrow: "1 / Pump",
+    heading: "Start with the diodes",
     description:
       "Side-mounted diode banks deliver pump light into a fiber combiner. Many low-power inputs become one concentrated source of optical energy.",
     focus: "Pump diode array",
@@ -29,8 +29,8 @@ export const PHASES = [
     end: 12,
     title: "Fiber amplification",
     short: "Amplify",
-    eyebrow: "02 / THE ACTIVE MEDIUM",
-    heading: "Small core.\nExtraordinary power.",
+    eyebrow: "2 / Amplify",
+    heading: "Build up the power",
     description:
       "Pump light excites ytterbium ions inside the active fiber. Stimulated emission amplifies a guided seed into a high-power processing beam.",
     focus: "Yb-doped active fiber",
@@ -48,8 +48,8 @@ export const PHASES = [
     end: 20,
     title: "Beam steering",
     short: "Steer",
-    eyebrow: "03 / THE SHARED OPTICAL PATH",
-    heading: "Two beams.\nOne precise path.",
+    eyebrow: "3 / Steer",
+    heading: "Bring the beams together",
     description:
       "A dichroic mirror combines the cyan measurement beam with the orange processing beam. X and Y galvanometers steer both through an F-theta lens.",
     focus: "2D scanner head",
@@ -67,8 +67,8 @@ export const PHASES = [
     end: 32,
     title: "Depth measurement",
     short: "Measure",
-    eyebrow: "04 / INSIDE THE KEYHOLE",
-    heading: "See beneath\nthe surface.",
+    eyebrow: "4 / Measure",
+    heading: "Watch the keyhole",
     description:
       "The processing beam opens a vapor-filled keyhole. Coaxial LDD light probes its floor and returns along the same optical path, revealing depth as it changes.",
     focus: "Keyhole & melt pool",

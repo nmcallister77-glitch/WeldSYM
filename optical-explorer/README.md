@@ -1,4 +1,4 @@
-# ICI — Optical Systems Lab
+# Laser sandbox
 
 A standalone React, react-three-fiber, drei, and Recharts educational explainer for
 inline coherent imaging (LDD / OCT) alongside a ytterbium fiber laser and 2D scanner.
@@ -34,7 +34,10 @@ Generated output is not committed; CI uploads it as the `ldd-optical-explorer` a
 - Toggle labels; reset the camera independently of playback.
 - Space toggles playback and R resets when an input or button is not focused.
 - Phase 04 plots depth, the trailing average, and an instantaneous 3D dimension.
-  Export signal saves the visible samples as CSV.
+  Save CSV exports the visible samples.
+- A compact return-intensity map puts time left-to-right and depth downward,
+  with a bright band at the same sampled depth. The colors are an illustrative
+  intensity pattern, not a simulated OCT interferogram or measured reflectivity.
 
 ## Signal and optical model
 

@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { ComponentRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Edges, Html, Line, OrbitControls } from "@react-three/drei";
+import { Edges, Html, Line, OrbitControls, RoundedBox } from "@react-three/drei";
 import {
   CatmullRomCurve3,
   DoubleSide,
   Group,
   Mesh,
   Quaternion,
+  Shape,
   Vector3,
 } from "three";
 import {
@@ -98,6 +99,11 @@ function Beam({
           vectors[segment + 1],
           lengths[segment] ? d / lengths[segment] : 0,
         );
+      if (reverse)
+        particle.quaternion.setFromUnitVectors(
+          UP,
+          vectors[segment + 1].clone().sub(vectors[segment]).normalize(),
+        );
     });
   });
   return (
@@ -127,8 +133,12 @@ function Beam({
       <group ref={particles}>
         {Array.from({ length: count }, (_, i) => (
           <mesh key={i}>
-            <sphereGeometry args={[reverse ? 0.067 : 0.048, 8, 8]} />
-            <meshBasicMaterial color={reverse ? "#e2ffff" : color} />
+            {reverse ? (
+              <coneGeometry args={[0.075, 0.2, 8]} />
+            ) : (
+              <sphereGeometry args={[0.048, 8, 8]} />
+            )}
+            <meshBasicMaterial color={reverse ? "#8efaff" : color} />
           </mesh>
         ))}
       </group>
@@ -153,7 +163,6 @@ function Label({
     <Html
       position={position}
       center
-      distanceFactor={19}
       zIndexRange={[30, 0]}
       style={{ pointerEvents: "none" }}
     >
@@ -170,18 +179,16 @@ function Label({
 function Housing({
   position,
   size,
-  color = "#253039",
+  color = "#90999c",
 }: {
   position: Point;
   size: Point;
   color?: string;
 }) {
   return (
-    <mesh position={position}>
-      <boxGeometry args={size} />
-      <meshStandardMaterial color={color} metalness={0.65} roughness={0.38} />
-      <Edges color="#62717a" threshold={15} />
-    </mesh>
+    <RoundedBox position={position} args={size} radius={0.025} smoothness={2}>
+      <meshStandardMaterial color={color} metalness={0.3} roughness={0.43} />
+    </RoundedBox>
   );
 }
 
@@ -275,6 +282,23 @@ function Workpiece({
   const pool = useRef<Mesh>(null);
   const plume = useRef<Group>(null);
   const d = depth * DEPTH_SCALE;
+  const offset = tip[0] - 4.4;
+  const section = useMemo(() => {
+    const shape = new Shape();
+    shape.moveTo(-1.9, -2.8);
+    shape.lineTo(1.9, -2.8);
+    shape.lineTo(1.9, 0);
+    if (d > 0) {
+      shape.lineTo(offset + 0.32, 0);
+      shape.quadraticCurveTo(offset + 0.19, -d * 0.06, offset + 0.10, -d * 0.72);
+      shape.quadraticCurveTo(offset + 0.05, -d, offset, -d);
+      shape.quadraticCurveTo(offset - 0.05, -d, offset - 0.10, -d * 0.72);
+      shape.quadraticCurveTo(offset - 0.19, -d * 0.06, offset - 0.32, 0);
+    }
+    shape.lineTo(-1.9, 0);
+    shape.closePath();
+    return shape;
+  }, [d, offset]);
   useFrame(() => {
     if (pool.current) {
       const pulse = 1 + Math.sin(time * 21) * 0.07;
@@ -292,35 +316,29 @@ function Workpiece({
   });
   return (
     <group>
-      <Housing
-        position={[4.4, -2.83, 0]}
-        size={[3.35, 0.2, 2.7]}
-        color="#313c43"
-      />
-      <Housing
-        position={[4.4, -1.33, -0.86]}
-        size={[3.35, 2.8, 0.98]}
-        color="#3c474c"
-      />
-      <Housing
-        position={[3.01, -1.33, 0.45]}
-        size={[0.57, 2.8, 1.65]}
-        color="#404c51"
-      />
-      <Housing
-        position={[5.8, -1.33, 0.45]}
-        size={[0.55, 2.8, 1.65]}
-        color="#404c51"
-      />
-      {Array.from({ length: 7 }, (_, i) => (
-        <Segment
-          key={i}
-          from={[2.73, -0.15 - i * 0.38, 1.29]}
-          to={[3.29, -0.15 - i * 0.38, 1.29]}
-          color="#74838b"
-          radius={0.008}
-          opacity={0.6}
+      <mesh position={[4.4, 0.12, -0.9]}>
+        <extrudeGeometry
+          args={[section, { depth: 1.25, bevelEnabled: false, curveSegments: 12 }]}
         />
+        <meshStandardMaterial color="#9dabad" metalness={0.3} roughness={0.5} />
+      </mesh>
+      {Array.from({ length: 23 }, (_, i) => (
+        <group key={i}>
+          <Segment
+            from={[2.51, -0.04 - i * 0.113, 0.36]}
+            to={[3.92, -0.04 - i * 0.113, 0.36]}
+            color="#d4d7d7"
+            radius={0.002}
+            opacity={0.3}
+          />
+          <Segment
+            from={[4.92, -0.04 - i * 0.113, 0.36]}
+            to={[6.29, -0.04 - i * 0.113, 0.36]}
+            color="#d4d7d7"
+            radius={0.002}
+            opacity={0.3}
+          />
+        </group>
       ))}
       {active && (
         <group>
@@ -329,23 +347,34 @@ function Workpiece({
             position={[tip[0], 0.125, tip[2]]}
             rotation={[-Math.PI / 2, 0, 0]}
           >
-            <ringGeometry args={[0.2, 0.65, 48]} />
-            <meshStandardMaterial
-              color="#ffb02e"
-              emissive="#ff5900"
-              emissiveIntensity={1.8}
-              side={DoubleSide}
-            />
+            <ringGeometry args={[0.2, 0.56, 48]} />
+            <meshBasicMaterial color="#ffbd32" side={DoubleSide} />
           </mesh>
+          {[0, 1, 2].map((i) => (
+            <mesh
+              key={i}
+              position={[tip[0], 0.124 - i * 0.001, tip[2]]}
+              rotation={[-Math.PI / 2, 0, 0]}
+            >
+              <ringGeometry args={[0.5 + i * 0.04, 0.55 + i * 0.05, 48]} />
+              <meshBasicMaterial
+                color={i === 0 ? "#ff7a16" : "#ff3c00"}
+                transparent
+                opacity={0.45 - i * 0.13}
+                side={DoubleSide}
+                depthWrite={false}
+              />
+            </mesh>
+          ))}
           {d > 0.001 && (
             <mesh position={[tip[0], 0.12 - d / 2, tip[2]]}>
               <cylinderGeometry
                 args={[0.22, 0.045, d, 32, 1, true, Math.PI / 2, Math.PI]}
               />
               <meshStandardMaterial
-                color="#dc6928"
-                emissive="#ff4600"
-                emissiveIntensity={0.75}
+                color="#ffbc28"
+                emissive="#ff6a00"
+                emissiveIntensity={1.2}
                 side={DoubleSide}
               />
             </mesh>
@@ -355,22 +384,22 @@ function Workpiece({
             <meshBasicMaterial color="#aefaff" />
           </mesh>
           <Segment
-            from={[tip[0] + 0.82, 0.12, 0.25]}
-            to={[tip[0] + 0.82, tip[1], 0.25]}
+            from={[tip[0] + 0.7, 0.12, 0.42]}
+            to={[tip[0] + 0.7, tip[1], 0.42]}
             color={CYAN}
             radius={0.008}
           />
           {[0.12, tip[1]].map((y, i) => (
             <Segment
               key={i}
-              from={[tip[0] + 0.73, y, 0.25]}
-              to={[tip[0] + 0.92, y, 0.25]}
+              from={[tip[0] + 0.61, y, 0.42]}
+              to={[tip[0] + 0.85, y, 0.42]}
               color={CYAN}
               radius={0.008}
             />
           ))}
           <Html
-            position={[tip[0] + 1, 0.12 - d / 2, 0.25]}
+            position={[tip[0] + 1.1, 0.12 - d / 2, 0.43]}
             center
             zIndexRange={[25, 0]}
           >
@@ -409,12 +438,12 @@ function CameraRig({ view, resetKey }: { view: CameraView; resetKey: number }) {
     const positions = {
       overview: [12.5, 10, 18.5],
       scanner: [9, 8, 11],
-      keyhole: [8, 3.2, 7],
+      keyhole: [5.6, 1.6, 8.5],
     } as const;
     const targets = {
       overview: [-0.65, 0.9, 0],
       scanner: [2.2, 2.8, 0],
-      keyhole: [4.4, -0.7, 0],
+      keyhole: [5.5, -0.3, 0],
     } as const;
     controls.current.object.position.fromArray(positions[view]);
     controls.current.target.fromArray(targets[view]);
@@ -433,15 +462,25 @@ function CameraRig({ view, resetKey }: { view: CameraView; resetKey: number }) {
   );
 }
 
-function Assembly({ time, labels }: { time: number; labels: boolean }) {
+function Assembly({
+  time,
+  labels,
+  view,
+}: {
+  time: number;
+  labels: boolean;
+  view: CameraView;
+}) {
   const phase = phaseAt(time);
   const signal = signalAt(time);
   const path = measurementPath(time, signal.active ? signal.sample.depth : 0);
   const [sensor, dichroic, xMirror, yMirror, lens, surface, tip] = path;
   const output: Point[] = [COIL[COIL.length - 1], [-1.5, 3.45, 0], dichroic];
+  const sourceLabels = labels && view === "overview";
+  const scannerLabels = labels && view !== "keyhole" && phase >= 2;
   return (
     <group>
-      <gridHelper args={[30, 60, "#28383c", "#1b282d"]} position={[0, -3, 0]} />
+      <gridHelper args={[30, 30, "#383d40", "#303538"]} position={[0, -3, 0]} />
       <Housing
         position={[-3.7, 1.35, 0]}
         size={[8.4, 0.15, 3.35]}
@@ -500,23 +539,35 @@ function Assembly({ time, labels }: { time: number; labels: boolean }) {
       <Housing
         position={[2.4, 2.13, 0]}
         size={[5.25, 0.18, 2.1]}
-        color="#253038"
+        color="#7b858a"
       />
       <Housing
         position={[2.4, 3.25, -1.05]}
         size={[5.25, 2.4, 0.12]}
-        color="#243039"
+        color="#a3adae"
       />
       <mesh position={[2.4, 3.4, 0]}>
         <boxGeometry args={[5.3, 2.55, 2.15]} />
         <meshBasicMaterial
-          color="#789aab"
+          color="#c8d5d7"
           transparent
           opacity={0.025}
           depthWrite={false}
         />
-        <Edges color="#52666f" />
+        <Edges color="#899494" />
       </mesh>
+      {[0, 1.4, 3, 4.8].map((x) =>
+        [2.3, 4.3].map((y) => (
+          <mesh
+            key={`${x}-${y}`}
+            position={[x, y, -0.96]}
+            rotation={[Math.PI / 2, 0, 0]}
+          >
+            <cylinderGeometry args={[0.045, 0.045, 0.055, 6]} />
+            <meshStandardMaterial color="#414a4d" metalness={0.45} roughness={0.5} />
+          </mesh>
+        )),
+      )}
       <Housing
         position={[0.1, 3.45, -2.85]}
         size={[1.1, 0.75, 0.7]}
@@ -531,13 +582,18 @@ function Assembly({ time, labels }: { time: number; labels: boolean }) {
       <Mirror previous={dichroic} position={xMirror} next={yMirror} />
       <Mirror previous={xMirror} position={[3.65, 4.15, 0]} next={lens} />
       {[xMirror, yMirror].map((p, i) => (
-        <Segment
-          key={i}
-          from={[p[0], p[1], -0.1]}
-          to={[p[0], p[1], -1]}
-          color="#65747e"
-          radius={0.12}
-        />
+        <group key={i}>
+          <Segment
+            from={[p[0], p[1], -0.1]}
+            to={[p[0], p[1], -1]}
+            color="#a4b0b4"
+            radius={0.12}
+          />
+          <mesh position={[p[0], p[1], -0.67]} rotation={[Math.PI / 2, 0, 0]}>
+            <cylinderGeometry args={[0.24, 0.24, 0.55, 24]} />
+            <meshStandardMaterial color="#455158" metalness={0.45} roughness={0.35} />
+          </mesh>
+        </group>
       ))}
       <mesh position={[4.35, 2.5, 0]}>
         <cylinderGeometry args={[0.52, 0.52, 0.18, 40]} />
@@ -599,50 +655,50 @@ function Assembly({ time, labels }: { time: number; labels: boolean }) {
         position={[-7, 4.7, 0]}
         title="PUMP DIODES"
         subtitle="976 nm · optical pumping"
-        active={labels}
+        active={sourceLabels}
       />
       <Label
         position={[-5.1, 1, 1.2]}
         title="FIBER COMBINER"
         subtitle="Multiple inputs → one fiber"
-        active={labels}
+        active={sourceLabels}
       />
       <Label
         position={[-3.1, 4.1, 0]}
         title="Yb-DOPED FIBER"
         subtitle="Double-clad gain medium"
-        active={labels && phase >= 1}
+        active={sourceLabels && phase >= 1}
       />
       <Label
         position={[-0.3, 4.9, -2.3]}
         title="LDD / OCT SENSOR"
         subtitle="Sample + reference interference"
-        active={labels && phase >= 2}
+        active={scannerLabels}
         accent
       />
       <Label
         position={[0, 2, 1.6]}
         title="DICHROIC"
         subtitle="Collinear beam combination"
-        active={labels && phase >= 2}
+        active={scannerLabels}
       />
       <Label
         position={[2.1, 4.3, 0.1]}
         title="X GALVO"
         subtitle="First steering axis"
-        active={labels && phase >= 2}
+        active={scannerLabels}
       />
       <Label
         position={[4, 5.25, 0]}
         title="Y GALVO"
         subtitle="Second steering axis"
-        active={labels && phase >= 2}
+        active={scannerLabels}
       />
       <Label
         position={[5.75, 2.5, 0]}
         title="F-THETA LENS"
         subtitle="Focus onto the workpiece"
-        active={labels && phase >= 2}
+        active={scannerLabels}
       />
       <Label
         position={[4.3, -3.35, 1]}
@@ -677,10 +733,11 @@ export default function OpticalScene({
         </div>
       }
     >
-      <ambientLight intensity={1.2} />
-      <directionalLight position={[0, 10, 8]} intensity={3} color="#e0e7e8" />
-      <directionalLight position={[-5, 4, -5]} intensity={2} color="#7194aa" />
-      <Assembly time={time} labels={labels} />
+      <ambientLight intensity={1.6} />
+      <directionalLight position={[0, 10, 8]} intensity={3} color="#fff2e0" />
+      <directionalLight position={[-5, 4, -5]} intensity={2} color="#acccdf" />
+      <directionalLight position={[4, 1, 8]} intensity={1.2} color="#e5eff4" />
+      <Assembly time={time} labels={labels} view={view} />
       <CameraRig view={view} resetKey={resetKey} />
     </Canvas>
   );

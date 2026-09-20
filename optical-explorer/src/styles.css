@@ -1,11 +1,11 @@
 :root {
   font-family: Inter, "Helvetica Neue", Arial, sans-serif;
   color: #e9edeb;
-  background: #101619;
+  background: #1b1e20;
   font-synthesis: none;
   font-weight: 400;
   --muted: #8c9a9f;
-  --lime: #d6e991;
+  --lime: #e9bc89;
   --line: #2b353a;
   --cyan: #57dfe6;
 }
@@ -73,7 +73,7 @@ button svg {
   overflow: hidden;
 }
 .app-header {
-  height: 77px;
+  height: 56px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--line);
   display: flex;
@@ -81,7 +81,7 @@ button svg {
   justify-content: space-between;
   padding: 0 32px;
   gap: 25px;
-  background: #131a1d;
+  background: #202326;
 }
 .brand {
   display: flex;
@@ -89,53 +89,16 @@ button svg {
   gap: 14px;
   white-space: nowrap;
 }
-.brand-mark {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  transform: rotate(-20deg);
-}
-.brand-mark i {
-  height: 24px;
-  width: 3px;
-  background: var(--lime);
-}
-.brand-mark i:nth-child(2) {
-  height: 34px;
-}
 .brand strong {
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: -1px;
-}
-.brand strong span {
-  color: #465358;
-  margin: 0 8px 0 12px;
-  font-weight: 300;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
 }
 .brand-name {
-  font-size: 10px;
-  letter-spacing: 2px;
-  font-weight: 600;
-  color: #b9c2c4;
-}
-.top-nav {
-  display: flex;
-  height: 100%;
-  align-items: center;
-  gap: 27px;
+  font-family: Georgia, serif;
+  font-style: italic;
   font-size: 12px;
-}
-.nav-selected {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  border-bottom: 2px solid var(--lime);
-}
-.nav-index {
-  font-size: 9px;
-  letter-spacing: 1.4px;
-  color: #6f828a;
+  color: #9fa5a5;
 }
 .guide-button {
   display: flex;
@@ -157,22 +120,22 @@ button svg {
   overflow: hidden;
   background: radial-gradient(
     ellipse at 45% 44%,
-    #202d33 0,
-    #152126 45%,
-    #111b1f 85%
+    #444b4f 0,
+    #30383d 45%,
+    #20272c 85%
   );
 }
 .viewport-heading {
   position: absolute;
-  top: 29px;
+  top: 20px;
   left: 31px;
   z-index: 5;
   pointer-events: none;
 }
 .eyebrow {
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 1.8px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
   color: #98a8ad;
   display: flex;
   align-items: center;
@@ -197,20 +160,22 @@ button svg {
   background: var(--cyan);
 }
 .viewport-heading h1 {
-  font-size: 27px;
-  letter-spacing: -0.8px;
+  font-size: 24px;
+  letter-spacing: -0.5px;
   font-weight: 400;
-  margin: 13px 0 7px;
+  margin: 0 0 7px;
 }
 .viewport-heading p {
-  color: #82959e;
+  color: #a4b0b4;
   font-size: 11px;
   margin: 0;
   letter-spacing: 0.2px;
 }
 .scene-container {
   position: absolute;
-  inset: 48px -2% 97px -3%;
+  inset: 107px 0 46px;
+  overflow: hidden;
+  isolation: isolate;
 }
 .view-tools {
   position: absolute;
@@ -240,12 +205,12 @@ button svg {
 }
 .camera-presets {
   position: absolute;
-  top: 137px;
+  top: 78px;
   left: 31px;
   display: flex;
   gap: 2px;
   border: 1px solid #334149;
-  border-radius: 5px;
+  border-radius: 8px;
   padding: 3px;
   z-index: 40;
   background: #141f24cc;
@@ -309,9 +274,9 @@ button svg {
   position: absolute;
   left: 31px;
   bottom: 27px;
-  color: #637f8a;
-  font-size: 8px;
-  letter-spacing: 1.4px;
+  color: #a0adb3;
+  font-size: 10px;
+  letter-spacing: 0;
   display: flex;
   gap: 10px;
   align-items: center;
@@ -327,9 +292,9 @@ button svg {
   position: absolute;
   right: 24px;
   bottom: 13px;
-  font-size: 7px;
-  letter-spacing: 1.35px;
-  color: #4f6b77;
+  font-size: 9px;
+  letter-spacing: 0;
+  color: #899da8;
 }
 .scene-label {
   white-space: nowrap;
@@ -339,26 +304,26 @@ button svg {
   transition:
     opacity 0.65s,
     transform 0.65s;
-  color: #c3d0d3;
+  color: #e1e8ea;
   pointer-events: none;
   padding: 6px 9px;
-  border-top: 1px solid #6e808879;
-  border-radius: 3px;
-  background: #152026c4;
+  border: 1px solid #73808860;
+  border-radius: 5px;
+  background: #20282de0;
 }
 .scene-label.visible {
   opacity: 1;
   transform: translateY(0);
 }
 .scene-label span {
-  font-size: 8px;
-  letter-spacing: 1.1px;
-  font-weight: 600;
+  font-size: 9px;
+  letter-spacing: 0.2px;
+  font-weight: 500;
   display: block;
 }
 .scene-label small {
-  font-size: 7px;
-  color: #8a9fa7;
+  font-size: 8px;
+  color: #b0bfc5;
   display: block;
   margin-top: 3px;
 }
@@ -368,7 +333,7 @@ button svg {
 .depth-tag {
   white-space: nowrap;
   color: #8fedf3;
-  font-size: 10px;
+  font-size: 12px;
   font-family: monospace;
   padding: 4px 6px;
   background: #16262de0;
@@ -392,13 +357,13 @@ button svg {
   justify-content: space-between;
 }
 .chart-heading .eyebrow {
-  font-size: 8px;
-  letter-spacing: 1.5px;
+  font-size: 11px;
+  letter-spacing: 0;
 }
 .signal-status {
-  font-size: 7px;
+  font-size: 9px;
   color: #71838b;
-  letter-spacing: 1px;
+  letter-spacing: 0;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -501,10 +466,29 @@ button svg {
 .chart-card.active {
   border-color: #3e6269;
 }
+.return-map {
+  margin-top: 10px;
+  color: #9fadb6;
+  font-size: 9px;
+}
+.return-map canvas {
+  display: block;
+  width: 100%;
+  height: 42px;
+  background: #100e18;
+  border-radius: 3px;
+  margin-top: 5px;
+}
+.return-map small {
+  display: block;
+  font-size: 8px;
+  color: #899aa3;
+  margin-top: 4px;
+}
 .inspector {
-  width: 331px;
+  width: 292px;
   flex-shrink: 0;
-  background: #151d21;
+  background: #202629;
   border-left: 1px solid var(--line);
   display: flex;
   flex-direction: column;
@@ -512,9 +496,9 @@ button svg {
 .inspector-tabs {
   display: flex;
   border-bottom: 1px solid var(--line);
-  padding: 0 25px;
-  gap: 27px;
-  min-height: 59px;
+  padding: 0 20px;
+  gap: 22px;
+  min-height: 49px;
 }
 .inspector-tabs button {
   font-size: 11px;
@@ -527,7 +511,7 @@ button svg {
   border-color: var(--lime);
 }
 .inspector-body {
-  padding: 27px 26px 24px;
+  padding: 23px 21px;
   overflow: auto;
   flex: 1;
   scrollbar-width: thin;
@@ -540,9 +524,9 @@ button svg {
   gap: 8px;
 }
 .phase-eyebrow .eyebrow {
-  font-size: 8px;
-  color: #a9b896;
-  letter-spacing: 1.3px;
+  font-size: 11px;
+  color: #e9bc89;
+  letter-spacing: 0;
 }
 .phase-counter {
   font-family: monospace;
@@ -555,38 +539,38 @@ button svg {
   white-space: nowrap;
 }
 .inspector h2 {
-  font-size: 32px;
-  line-height: 1.14;
+  font-size: 25px;
+  line-height: 1.25;
   font-weight: 400;
-  letter-spacing: -1.1px;
-  margin: 22px 0 17px;
+  letter-spacing: -0.5px;
+  margin: 14px 0;
   white-space: pre-line;
   animation: enter 0.35s ease-out;
 }
 .phase-description {
-  color: #93a5ac;
-  font-size: 11px;
-  line-height: 1.85;
+  color: #b0bec4;
+  font-size: 12px;
+  line-height: 1.75;
   margin: 0;
 }
 .component-focus {
   display: flex;
   align-items: center;
   gap: 12px;
-  border: 1px solid #36423b;
+  border: 1px solid #49504f;
   border-radius: 6px;
-  background: #222c25;
+  background: #2b3031;
   padding: 13px 12px;
-  margin: 24px 0 20px;
+  margin: 18px 0 12px;
 }
 .focus-icon {
   color: #bfce93;
   display: flex;
 }
 .component-focus .eyebrow {
-  font-size: 7px;
-  letter-spacing: 1.3px;
-  color: #8f9c7c;
+  font-size: 10px;
+  letter-spacing: 0;
+  color: #b8a590;
 }
 .component-focus strong {
   font-size: 11px;
@@ -630,9 +614,9 @@ button svg {
   margin-top: 25px;
 }
 .mechanism .eyebrow {
-  font-size: 8px;
-  color: #687f89;
-  letter-spacing: 1.4px;
+  font-size: 10px;
+  color: #adb5b7;
+  letter-spacing: 0;
 }
 .mechanism h3 {
   font-size: 11px;
@@ -641,9 +625,9 @@ button svg {
   margin: 10px 0;
 }
 .mechanism p {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.8;
-  color: #80959f;
+  color: #a1b0b8;
   margin: 0;
 }
 .next-phase {
@@ -659,8 +643,8 @@ button svg {
   color: #b9cbbd;
 }
 .next-phase span {
-  font-size: 7px;
-  letter-spacing: 1.5px;
+  font-size: 10px;
+  letter-spacing: 0;
   color: #6f8690;
 }
 .next-phase strong {
@@ -696,15 +680,15 @@ button svg {
 }
 .playback {
   flex-shrink: 0;
-  height: 185px;
-  background: #141c20;
+  height: 158px;
+  background: #202629;
   border-top: 1px solid #344148;
   padding: 0 31px;
   position: relative;
   z-index: 50;
 }
 .timeline-top {
-  height: 66px;
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -731,7 +715,7 @@ button svg {
   font-weight: 600;
 }
 .play-button:hover:not(:disabled) {
-  background: #e9f6bc;
+  background: #f8d4ad;
   color: #1b2a17;
 }
 .play-button.is-playing {
@@ -850,7 +834,7 @@ button svg {
   display: flex;
   align-items: stretch;
   gap: 0;
-  height: 72px;
+  height: 57px;
 }
 .phase-button {
   display: flex;
@@ -912,8 +896,8 @@ button svg {
   padding-top: 11px;
   border-top: 1px solid #28343a;
   color: #4c6773;
-  font-size: 7px;
-  letter-spacing: 1.1px;
+  font-size: 9px;
+  letter-spacing: 0;
 }
 .bottom-note span:nth-child(2) {
   letter-spacing: 0.3px;
@@ -1071,17 +1055,17 @@ button svg {
 }
 @media (min-width: 1550px) {
   .inspector {
-    width: 365px;
+    width: 315px;
   }
   .inspector-body {
     padding: 32px;
   }
   .viewport-heading {
-    top: 35px;
+    top: 20px;
     left: 38px;
   }
   .viewport-heading h1 {
-    font-size: 32px;
+    font-size: 26px;
   }
   .chart-card {
     width: 345px;
@@ -1090,10 +1074,10 @@ button svg {
     height: 130px;
   }
   .scene-container {
-    inset: 40px -2% 105px -3%;
+    inset: 107px 0 46px;
   }
   .inspector h2 {
-    font-size: 38px;
+    font-size: 27px;
   }
   .phase-description {
     font-size: 13px;
@@ -1113,14 +1097,11 @@ button svg {
   .app-header {
     padding: 0 22px;
   }
-  .top-nav {
-    display: none;
-  }
   .brand-name {
     font-size: 9px;
   }
   .inspector {
-    width: 291px;
+    width: 270px;
   }
   .inspector-body {
     padding: 23px 21px;
@@ -1129,11 +1110,11 @@ button svg {
     padding: 0 21px;
   }
   .inspector h2 {
-    font-size: 29px;
+    font-size: 24px;
   }
   .phase-eyebrow .eyebrow {
-    font-size: 7px;
-    letter-spacing: 1px;
+    font-size: 11px;
+    letter-spacing: 0;
   }
   .phase-counter {
     display: none;
@@ -1170,7 +1151,7 @@ button svg {
     display: none;
   }
   .scene-container {
-    inset: 85px -7% 136px -9%;
+    inset: 107px 0 80px;
   }
   .chart-plot {
     height: 98px;
@@ -1193,7 +1174,7 @@ button svg {
     padding-bottom: 156px;
   }
   .app-header {
-    height: 65px;
+    height: 56px;
     padding: 0 16px;
     gap: 12px;
   }
@@ -1201,17 +1182,13 @@ button svg {
     gap: 10px;
   }
   .brand strong {
-    font-size: 24px;
+    font-size: 17px;
   }
   .brand strong span {
     margin: 0 4px;
   }
   .brand-name {
-    font-size: 8px;
-    letter-spacing: 1px;
-    max-width: 85px;
-    white-space: normal;
-    line-height: 1.7;
+    display: none;
   }
   .guide-button span {
     display: none;
@@ -1228,10 +1205,10 @@ button svg {
     top: 25px;
   }
   .scene-container {
-    inset: 65px -8% 145px -10%;
+    inset: 116px 0 290px;
   }
   .camera-presets {
-    top: 124px;
+    top: 80px;
     left: 20px;
   }
   .view-tools {
@@ -1394,7 +1371,7 @@ button svg {
     width: 9px;
   }
   .scene-container {
-    inset: 108px -15% 160px -18%;
+    inset: 116px 0 290px;
   }
   .viewport-heading h1 {
     font-size: 23px;
