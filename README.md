@@ -6,6 +6,14 @@ Both solvers ship inside the Python package: a fast 2D thin-plate solve for scre
 
 ## Repository layout
 
+### Interactive optics explainer
+
+The standalone [Laser sandbox](optical-explorer/README.md) shows
+the fiber laser, scanner, and synchronized keyhole depth signal in an interactive
+3D web app. Build it into one offline-playable HTML file with
+`npm --prefix optical-explorer run build` after installing its dependencies.
+The Python simulation dashboard below runs independently.
+
 Clone or copy this repo somewhere on your machine. Below, `<REPO>` stands for the repo root on your machine (e.g. `C:\Dev\WeldSYM` on Windows or `~/repos/WeldSYM` on Linux).
 
 ```text
