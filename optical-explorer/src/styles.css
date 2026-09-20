@@ -1383,11 +1383,11 @@ button svg {
     font-size: 23px;
   }
   .view-tools {
-    top: 99px;
+    top: 80px;
     flex-direction: row;
   }
   .camera-presets {
-    top: 128px;
+    top: 80px;
   }
   .camera-presets button {
     padding: 5px 8px;
