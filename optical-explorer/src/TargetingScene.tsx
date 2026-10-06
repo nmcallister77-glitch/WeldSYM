@@ -111,12 +111,12 @@ function CameraRig({ view, resetKey }: { view: TargetView; resetKey: number }) {
   useEffect(() => {
     if (!controls.current) return;
     const positions = {
-      angle: compact ? [6.5, 6.5, 9.5] : [4.6, 4.3, 6.3],
+      angle: compact ? [6.5, 6.5, 9.5] : [5.3, 4.6, 7.3],
       top: [0, compact ? 13 : 9.5, 0.01],
       close: compact ? [3.4, 2.8, 4.4] : [2.6, 2, 3.1],
     } as const;
     const targets = {
-      angle: [0.15, 1.05, 0],
+      angle: [0.15, 1.55, 0],
       top: [0, 0, 0],
       close: [ACTUAL.x, 0.45, ACTUAL.y],
     } as const;
@@ -270,7 +270,7 @@ function Fixture({
       {step >= 2 && (
         <>
           <Line
-            points={seam(NOMINAL).map((p) => at(p, NOMINAL.height + 14))}
+            points={seam(NOMINAL).map((p) => at(p, top + 14))}
             color="#e7ecec"
             lineWidth={1.4}
             dashed
@@ -280,7 +280,7 @@ function Fixture({
             opacity={step >= 3 ? 0.45 : 0.9}
           />
           <Line
-            points={seam(path).map((p) => at(p, path.height + 16))}
+            points={seam(path).map((p) => at(p, top + 16))}
             color={LIME}
             lineWidth={2.6}
           />
@@ -373,7 +373,7 @@ function Fixture({
         position={[ACTUAL.x + 1.9, 1.05, ACTUAL.y + 0.9]}
         title="WHERE LDD FOUND IT"
         subtitle={`${FOUND.height} µm tall · ${((FOUND.angle * 180) / Math.PI).toFixed(1)}°`}
-        active={show && step >= 1 && step <= 2}
+        active={show && step === 1}
         accent
       />
       <Label
@@ -402,7 +402,7 @@ export default function TargetingScene({
 }) {
   return (
     <Canvas
-      camera={{ position: [4.6, 4.3, 6.3], fov: 43, near: 0.05, far: 100 }}
+      camera={{ position: [5.3, 4.6, 7.3], fov: 43, near: 0.05, far: 100 }}
       dpr={[1, 1.75]}
       gl={{ antialias: true, alpha: true }}
       fallback={
