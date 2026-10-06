@@ -9,7 +9,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/simulation.test.ts"
+    "test": "node --experimental-strip-types --test src/simulation.test.ts src/targeting.test.ts"
   },
   "dependencies": {
     "@react-three/drei": "10.7.4",

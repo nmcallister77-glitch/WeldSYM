@@ -33,7 +33,7 @@ const COIL: Point[] = Array.from({ length: 180 }, (_, i) => {
   ];
 });
 
-function Segment({
+export function Segment({
   from,
   to,
   color,
@@ -146,7 +146,7 @@ function Beam({
   );
 }
 
-function Label({
+export function Label({
   position,
   title,
   subtitle,

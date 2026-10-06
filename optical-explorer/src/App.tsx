@@ -13,14 +13,26 @@ import {
 } from "recharts";
 import OpticalScene from "./OpticalScene";
 import type { CameraView } from "./OpticalScene";
+import TargetingScene from "./TargetingScene";
+import type { TargetView } from "./TargetingScene";
+import { TargetChart, TargetPrinciple } from "./Targeting";
 import {
-  clampTime,
   DURATION,
   INTERACTION_START,
   phaseAt,
   PHASES,
   signalAt,
 } from "./simulation";
+import {
+  TARGET_DURATION,
+  targetFacts,
+  TARGET_STEPS,
+  targetingAt,
+  targetStepAt,
+  SCAN,
+} from "./targeting";
+
+type Mode = "depth" | "target";
 
 function Icon({
   name,
@@ -376,13 +388,24 @@ export default function App() {
   const [resetKey, setResetKey] = useState(0);
   const [guide, setGuide] = useState(false);
   const [tab, setTab] = useState<"journey" | "principle">("journey");
+  const [mode, setMode] = useState<Mode>("depth");
+  const [targetView, setTargetView] = useState<TargetView>("angle");
   const timeRef = useRef(0);
-  const phase = phaseAt(time);
-  const current = PHASES[phase];
+  const depthMode = mode === "depth";
+  const steps = depthMode ? PHASES : TARGET_STEPS;
+  const duration = depthMode ? DURATION : TARGET_DURATION;
+  const phase = depthMode ? phaseAt(time) : targetStepAt(time);
+  const current = steps[phase];
+  const facts = depthMode ? PHASES[phase].facts : targetFacts(phase);
   const signal = signalAt(time);
+  const scanned = depthMode ? 0 : targetingAt(time).scanned;
+  const canExport = depthMode ? signal.active : scanned > 0;
 
   const seek = (next: number) => {
-    const clamped = clampTime(next);
+    const clamped = Math.max(
+      0,
+      Math.min(duration, Number.isFinite(next) ? next : 0),
+    );
     timeRef.current = clamped;
     setTime(clamped);
   };
@@ -391,8 +414,17 @@ export default function App() {
     setPlaying(false);
   };
   const togglePlay = () => {
-    if (timeRef.current >= DURATION) seek(0);
+    if (timeRef.current >= duration) seek(0);
     setPlaying((value) => !value);
+  };
+  const switchMode = (next: Mode) => {
+    if (next === mode) return;
+    timeRef.current = 0;
+    setTime(0);
+    setPlaying(false);
+    setMode(next);
+    setTab("journey");
+    setResetKey((key) => key + 1);
   };
 
   useEffect(() => {
@@ -402,15 +434,16 @@ export default function App() {
     let lastDraw = 0;
     const animate = (now: number) => {
       if (previous !== undefined)
-        timeRef.current = clampTime(
+        timeRef.current = Math.min(
+          duration,
           timeRef.current + Math.min((now - previous) / 1000, 0.1) * speed,
         );
       previous = now;
-      if (now - lastDraw >= 1000 / 30 || timeRef.current >= DURATION) {
+      if (now - lastDraw >= 1000 / 30 || timeRef.current >= duration) {
         setTime(timeRef.current);
         lastDraw = now;
       }
-      if (timeRef.current >= DURATION) {
+      if (timeRef.current >= duration) {
         setPlaying(false);
         return;
       }
@@ -418,7 +451,7 @@ export default function App() {
     };
     frame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frame);
-  }, [playing, speed]);
+  }, [playing, speed, duration]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -427,7 +460,7 @@ export default function App() {
         return;
       if (event.code === "Space") {
         event.preventDefault();
-        if (timeRef.current >= DURATION) {
+        if (timeRef.current >= duration) {
           timeRef.current = 0;
           setTime(0);
         }
@@ -441,21 +474,30 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [guide]);
+  }, [guide, duration]);
 
   function downloadData() {
-    const rows = [
-      "time_ms,depth_um,trailing_10ms_mean_um",
-      ...signal.history.map(
-        (sample) => `${sample.time},${sample.depth},${sample.mean}`,
-      ),
-    ];
+    const rows = depthMode
+      ? [
+          "time_ms,depth_um,trailing_10ms_mean_um",
+          ...signal.history.map(
+            (sample) => `${sample.time},${sample.depth},${sample.mean}`,
+          ),
+        ]
+      : [
+          "x_mm,y_mm,height_um,scan_line",
+          ...SCAN.slice(0, scanned).map(
+            (p) => `${p.x.toFixed(4)},${p.y.toFixed(4)},${p.z},${p.line + 1}`,
+          ),
+        ];
     const url = URL.createObjectURL(
       new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" }),
     );
     const a = document.createElement("a");
     a.href = url;
-    a.download = "ldd-synthetic-depth.csv";
+    a.download = depthMode
+      ? "ldd-synthetic-depth.csv"
+      : "ldd-synthetic-part-scan.csv";
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
@@ -471,12 +513,30 @@ export default function App() {
             event.preventDefault();
             reset();
             setView("overview");
+            setTargetView("angle");
             setResetKey((key) => key + 1);
           }}
         >
           <strong>Laser sandbox</strong>
           <span className="brand-name">let’s see what’s going on inside</span>
         </a>
+        <div className="mode-switch" role="group" aria-label="What to explore">
+          {(
+            [
+              ["depth", "Keyhole depth"],
+              ["target", "Small part targeting"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              aria-pressed={mode === value}
+              className={mode === value ? "selected" : ""}
+              onClick={() => switchMode(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <button className="guide-button" onClick={() => setGuide(true)}>
           <Icon name="help" size={16} />
           <span>Controls &amp; a few notes</span>
@@ -490,22 +550,41 @@ export default function App() {
         >
           <div className="viewport-heading">
             <h1>
-              {view === "overview"
-                ? "Follow the beams."
-                : view === "scanner"
-                  ? "Inside the scanner."
-                  : "A slice through the weld."}
+              {depthMode
+                ? view === "overview"
+                  ? "Follow the beams."
+                  : view === "scanner"
+                    ? "Inside the scanner."
+                    : "A slice through the weld."
+                : targetView === "angle"
+                  ? "Find the part first."
+                  : targetView === "top"
+                    ? "Straight down the beam."
+                    : "Up close on the tab."}
             </h1>
-            <p>Grab the model. Move around. Scrub back and forth.</p>
+            <p>
+              {depthMode
+                ? "Grab the model. Move around. Scrub back and forth."
+                : "Scan it, find it, then weld where it really is."}
+            </p>
           </div>
           <div className="scene-container">
-            <SceneBoundary>
-              <OpticalScene
-                time={time}
-                labels={labels}
-                view={view}
-                resetKey={resetKey}
-              />
+            <SceneBoundary key={mode}>
+              {depthMode ? (
+                <OpticalScene
+                  time={time}
+                  labels={labels}
+                  view={view}
+                  resetKey={resetKey}
+                />
+              ) : (
+                <TargetingScene
+                  time={time}
+                  labels={labels}
+                  view={targetView}
+                  resetKey={resetKey}
+                />
+              )}
             </SceneBoundary>
           </div>
           <div className="view-tools">
@@ -522,6 +601,7 @@ export default function App() {
               className="icon-button"
               onClick={() => {
                 setView("overview");
+                setTargetView("angle");
                 setResetKey((key) => key + 1);
               }}
               title="Reset camera"
@@ -531,26 +611,54 @@ export default function App() {
             </button>
           </div>
           <div className="camera-presets" role="group" aria-label="Camera view">
-            {(["overview", "scanner", "keyhole"] as const).map((preset) => (
-              <button
-                key={preset}
-                aria-pressed={view === preset}
-                className={view === preset ? "selected" : ""}
-                onClick={() => {
-                  setView(preset);
-                  setResetKey((key) => key + 1);
-                }}
-              >
-                {preset === "overview" && <Icon name="cube" size={13} />}
-                {preset}
-              </button>
-            ))}
+            {depthMode
+              ? (["overview", "scanner", "keyhole"] as const).map((preset) => (
+                  <button
+                    key={preset}
+                    aria-pressed={view === preset}
+                    className={view === preset ? "selected" : ""}
+                    onClick={() => {
+                      setView(preset);
+                      setResetKey((key) => key + 1);
+                    }}
+                  >
+                    {preset === "overview" && <Icon name="cube" size={13} />}
+                    {preset}
+                  </button>
+                ))
+              : (["angle", "top", "close"] as const).map((preset) => (
+                  <button
+                    key={preset}
+                    aria-pressed={targetView === preset}
+                    className={targetView === preset ? "selected" : ""}
+                    onClick={() => {
+                      setTargetView(preset);
+                      setResetKey((key) => key + 1);
+                    }}
+                  >
+                    {preset === "angle" && <Icon name="cube" size={13} />}
+                    {preset}
+                  </button>
+                ))}
           </div>
           <div className="beam-legend">
-            <span>
-              <i className="pump-line" />
-              Pump <small>976 nm</small>
-            </span>
+            {depthMode ? (
+              <span>
+                <i className="pump-line" />
+                Pump <small>976 nm</small>
+              </span>
+            ) : (
+              <span>
+                <i className="ghost-line" />
+                Programmed <small>CAD</small>
+              </span>
+            )}
+            {!depthMode && (
+              <span>
+                <i className="found-line" />
+                Found <small>from scan</small>
+              </span>
+            )}
             <span>
               <i className="process-line" />
               Processing <small>1,070 nm</small>
@@ -563,7 +671,11 @@ export default function App() {
           <div className="interaction-hint">
             <span>↔</span> Drag to orbit <b>·</b> scroll to zoom
           </div>
-          <DepthChart time={time} playing={playing} />
+          {depthMode ? (
+            <DepthChart time={time} playing={playing} />
+          ) : (
+            <TargetChart time={time} playing={playing} />
+          )}
           <div className="viewport-corner">
             Shapes and depth exaggerated to make things visible
           </div>
@@ -593,7 +705,7 @@ export default function App() {
               className={tab === "principle" ? "active" : ""}
               onClick={() => setTab("principle")}
             >
-              How LDD works
+              {depthMode ? "How LDD works" : "Why scan first"}
             </button>
           </div>
           <div
@@ -608,7 +720,7 @@ export default function App() {
                   <span className="eyebrow">{current.eyebrow}</span>
                   <span className="phase-counter">
                     {String(phase + 1).padStart(2, "0")}
-                    <small> / 04</small>
+                    <small> / {String(steps.length).padStart(2, "0")}</small>
                   </span>
                 </div>
                 <h2 key={phase}>{current.heading}</h2>
@@ -624,7 +736,7 @@ export default function App() {
                   <span className="focus-pulse" />
                 </div>
                 <div className="spec-list">
-                  {current.facts.map(([label, value, unit]) => (
+                  {facts.map(([label, value, unit]) => (
                     <div className="spec-row" key={label}>
                       <span>{label}</span>
                       <strong>
@@ -641,22 +753,42 @@ export default function App() {
                 <button
                   className="next-phase"
                   onClick={() => {
-                    seek(phase < 3 ? PHASES[phase + 1].start : 0);
+                    seek(phase < steps.length - 1 ? steps[phase + 1].start : 0);
                     setPlaying(false);
                   }}
                 >
                   <span>
-                    {phase < 3 ? (
+                    {phase < steps.length - 1 ? (
                       <>
-                        Next<strong>{PHASES[phase + 1].title}</strong>
+                        Next<strong>{steps[phase + 1].title}</strong>
                       </>
                     ) : (
                       <>
-                        Again?<strong>Back to the diodes</strong>
+                        Again?
+                        <strong>
+                          {depthMode ? "Back to the diodes" : "Scan it again"}
+                        </strong>
                       </>
                     )}
                   </span>
                   <Icon name="arrow" size={21} />
+                </button>
+              </>
+            ) : !depthMode ? (
+              <>
+                <TargetPrinciple />
+                <button
+                  className="next-phase"
+                  onClick={() => {
+                    seek(0);
+                    setPlaying(true);
+                    setTab("journey");
+                  }}
+                >
+                  <span>
+                    Try it<strong>Watch the scan</strong>
+                  </span>
+                  <Icon name="arrow" />
                 </button>
               </>
             ) : (
@@ -758,7 +890,7 @@ export default function App() {
             </label>
             <span className="time-display">
               {time.toFixed(1).padStart(4, "0")}
-              <span> / {DURATION}.0 s</span>
+              <span> / {duration}.0 s</span>
             </span>
           </div>
           <div className="timeline-caption">
@@ -767,11 +899,15 @@ export default function App() {
           <button
             className="export-button"
             onClick={downloadData}
-            disabled={!signal.active}
+            disabled={!canExport}
             title={
-              signal.active
-                ? "Download visible synthetic depth data"
-                : "Available during phase 04"
+              canExport
+                ? depthMode
+                  ? "Download visible synthetic depth data"
+                  : "Download the scanned height points so far"
+                : depthMode
+                  ? "Available during phase 04"
+                  : "Available once the scan starts"
             }
           >
             <Icon name="download" size={15} />
@@ -780,20 +916,20 @@ export default function App() {
         </div>
         <div className="scrubber-wrap">
           <div className="timeline-track">
-            <div style={{ width: `${(time / DURATION) * 100}%` }} />
+            <div style={{ width: `${(time / duration) * 100}%` }} />
           </div>
-          {PHASES.slice(1).map((p) => (
+          {steps.slice(1).map((p) => (
             <i
               key={p.start}
               className="timeline-marker"
-              style={{ left: `${(p.start / DURATION) * 100}%` }}
+              style={{ left: `${(p.start / duration) * 100}%` }}
             />
           ))}
           <input
             className="scrubber"
             type="range"
             min={0}
-            max={DURATION}
+            max={duration}
             step={0.01}
             value={time}
             aria-label="Simulation timeline"
@@ -803,12 +939,12 @@ export default function App() {
               setPlaying(false);
             }}
             style={
-              { "--progress": `${(time / DURATION) * 100}%` } as CSSProperties
+              { "--progress": `${(time / duration) * 100}%` } as CSSProperties
             }
           />
         </div>
         <div className="phase-navigation">
-          {PHASES.map((p, index) => (
+          {steps.map((p, index) => (
             <button
               key={p.start}
               className={`phase-button ${phase === index ? "active" : ""} ${phase > index ? "complete" : ""}`}
@@ -833,10 +969,15 @@ export default function App() {
           ))}
         </div>
         <div className="bottom-note">
-          <span>Orange makes the weld. Cyan measures it.</span>
           <span>
-            Depth signal: procedural · Acquisition: 2 kHz · Display slowed for
-            clarity
+            {depthMode
+              ? "Orange makes the weld. Cyan measures it."
+              : "Cyan finds the part. Orange welds where it really is."}
+          </span>
+          <span>
+            {depthMode
+              ? "Depth signal: procedural · Acquisition: 2 kHz · Display slowed for clarity"
+              : "Part scan: synthetic · Offset and timing made up · Display slowed for clarity"}
           </span>
         </div>
       </footer>

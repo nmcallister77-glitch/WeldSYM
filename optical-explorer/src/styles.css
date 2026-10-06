@@ -100,6 +100,29 @@ button svg {
   font-size: 12px;
   color: #9fa5a5;
 }
+.mode-switch {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  margin-right: auto;
+  border: 1px solid #334149;
+  border-radius: 8px;
+  background: #171d20;
+}
+.mode-switch button {
+  font-size: 11px;
+  color: #8fa3ac;
+  border-radius: 5px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+.mode-switch button.selected {
+  background: #3a3329;
+  color: #f2d9b8;
+}
+.mode-switch button:hover:not(.selected) {
+  background: #26373e;
+}
 .guide-button {
   display: flex;
   align-items: center;
@@ -269,6 +292,30 @@ button svg {
 .measure-line {
   background: var(--cyan);
   box-shadow: 0 0 7px #53e4ec44;
+}
+.ghost-line {
+  background: repeating-linear-gradient(90deg, #c3cbcd 0 4px, transparent 4px 7px);
+}
+.found-line {
+  background: #d8f27a;
+  box-shadow: 0 0 7px #d8f27a44;
+}
+.ghost-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  display: inline-block;
+  border: 1px dashed #9aa6a9;
+  margin-left: 7px;
+}
+.target-card .chart-foot .lime-dot {
+  margin-left: 0;
+}
+.target-card .depth-number {
+  font-size: 27px;
+}
+.target-tag {
+  color: #e4f69c;
 }
 .interaction-hint {
   position: absolute;
@@ -1192,6 +1239,10 @@ button svg {
   }
   .guide-button span {
     display: none;
+  }
+  .mode-switch button {
+    padding: 5px 8px;
+    font-size: 10px;
   }
   .workspace {
     display: block;
