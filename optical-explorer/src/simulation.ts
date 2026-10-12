@@ -4,6 +4,10 @@ export const DURATION = 32;
 export const INTERACTION_START = 20;
 export const SAMPLE_INTERVAL_MS = 0.5;
 export const DEPTH_SCALE = 0.0017;
+export const STEEL_N = 3.5;
+export const STEEL_K = 4.0;
+export const MOUTH_RADIUS_UM = 150;
+export const KEYHOLE_ONSET_MS = 6;
 export const PHASES = [
   {
     start: 0,
@@ -98,20 +102,307 @@ function noise(index: number): number {
   return (((n ^ (n >>> 16)) >>> 0) / 4294967295) * 2 - 1;
 }
 
+function complexSquareRoot(real: number, imaginary: number): [number, number] {
+  const magnitude = Math.hypot(real, imaginary);
+  const rootReal = Math.sqrt(Math.max(0, (magnitude + real) / 2));
+  const rootImaginary = Math.sqrt(Math.max(0, (magnitude - real) / 2));
+  return [rootReal, imaginary < 0 ? -rootImaginary : rootImaginary];
+}
+
+function complexDivide(
+  numeratorReal: number,
+  numeratorImaginary: number,
+  denominatorReal: number,
+  denominatorImaginary: number,
+): [number, number] {
+  const denominator = denominatorReal ** 2 + denominatorImaginary ** 2;
+  return [
+    (numeratorReal * denominatorReal +
+      numeratorImaginary * denominatorImaginary) /
+      denominator,
+    (numeratorImaginary * denominatorReal -
+      numeratorReal * denominatorImaginary) /
+      denominator,
+  ];
+}
+
+export function fresnelAbsorptivity(
+  cosTheta: number,
+  n = STEEL_N,
+  k = STEEL_K,
+): number {
+  const cosine = Math.min(1, Math.max(0, cosTheta));
+  if (cosine === 0) return 0;
+
+  const sineSquared = 1 - cosine ** 2;
+  const indexSquaredReal = n ** 2 - k ** 2;
+  const indexSquaredImaginary = 2 * n * k;
+  const [transmittedReal, transmittedImaginary] = complexSquareRoot(
+    indexSquaredReal - sineSquared,
+    indexSquaredImaginary,
+  );
+
+  const [sReal, sImaginary] = complexDivide(
+    cosine - transmittedReal,
+    -transmittedImaginary,
+    cosine + transmittedReal,
+    transmittedImaginary,
+  );
+  const [pReal, pImaginary] = complexDivide(
+    indexSquaredReal * cosine - transmittedReal,
+    indexSquaredImaginary * cosine - transmittedImaginary,
+    indexSquaredReal * cosine + transmittedReal,
+    indexSquaredImaginary * cosine + transmittedImaginary,
+  );
+  const reflectance =
+    (sReal ** 2 + sImaginary ** 2 + pReal ** 2 + pImaginary ** 2) / 2;
+  return Math.min(1, Math.max(0, 1 - reflectance));
+}
+
+export interface RayPath {
+  points: [number, number][];
+  power: number[];
+}
+
+interface TracedRay {
+  absorbed: number;
+  path: RayPath;
+}
+
+function coneIntersection(
+  x: number,
+  z: number,
+  directionX: number,
+  directionZ: number,
+  mouthRadiusUm: number,
+  depthUm: number,
+  minimumDistance: number,
+): number | undefined {
+  const slope = mouthRadiusUm / depthUm;
+  const localRadius = mouthRadiusUm * (1 - z / depthUm);
+  const a = directionX ** 2 - (slope * directionZ) ** 2;
+  const b = 2 * (x * directionX + slope * localRadius * directionZ);
+  const c = x ** 2 - localRadius ** 2;
+  let roots: number[];
+
+  if (Math.abs(a) < 1e-14) {
+    roots = Math.abs(b) < 1e-30 ? [] : [-c / b];
+  } else {
+    const discriminant = b ** 2 - 4 * a * c;
+    if (discriminant < 0) return undefined;
+    const root = Math.sqrt(discriminant);
+    roots = [(-b - root) / (2 * a), (-b + root) / (2 * a)];
+  }
+
+  for (const distance of roots.sort((left, right) => left - right)) {
+    const hitX = x + directionX * distance;
+    const hitZ = z + directionZ * distance;
+    const atApex =
+      Math.abs(hitX) <= minimumDistance &&
+      Math.abs(hitZ - depthUm) <= minimumDistance;
+    if (
+      distance > minimumDistance &&
+      hitZ > 0 &&
+      (hitZ < depthUm || atApex)
+    ) {
+      return distance;
+    }
+  }
+  return undefined;
+}
+
+function traceKeyholeRay(
+  entryX: number,
+  depthUm: number,
+  mouthRadiusUm: number,
+): TracedRay {
+  const path: RayPath = { points: [[entryX, 0]], power: [1] };
+  if (depthUm <= 0) return { absorbed: fresnelAbsorptivity(1), path };
+
+  const scale = Math.max(depthUm, mouthRadiusUm, 1e-12);
+  const minimumDistance = 1e-9 * scale;
+  const slope = mouthRadiusUm / depthUm;
+  const normalScale = 1 / Math.sqrt(1 + slope ** 2);
+  let x = entryX;
+  let z = 0;
+  let directionX = 0;
+  let directionZ = 1;
+  let remainingPower = 1;
+
+  for (let reflection = 0; reflection < 50; reflection += 1) {
+    const distance = coneIntersection(
+      x,
+      z,
+      directionX,
+      directionZ,
+      mouthRadiusUm,
+      depthUm,
+      minimumDistance,
+    );
+
+    if (directionZ < 0) {
+      const exitDistance = -z / directionZ;
+      if (
+        exitDistance > minimumDistance &&
+        (distance === undefined || exitDistance <= distance)
+      ) {
+        path.points.push([x + directionX * exitDistance, 0]);
+        path.power.push(remainingPower);
+        break;
+      }
+    }
+    if (distance === undefined) break;
+
+    const hitX = x + directionX * distance;
+    const hitZ = z + directionZ * distance;
+    const normalX = (hitX < 0 ? -1 : 1) * normalScale;
+    const normalZ = slope * normalScale;
+    const incidenceCosine = Math.abs(
+      directionX * normalX + directionZ * normalZ,
+    );
+    remainingPower *= 1 - fresnelAbsorptivity(incidenceCosine);
+    path.points.push([hitX, hitZ]);
+    path.power.push(remainingPower);
+    if (remainingPower < 1e-6) break;
+
+    const normalProjection = directionX * normalX + directionZ * normalZ;
+    directionX -= 2 * normalProjection * normalX;
+    directionZ -= 2 * normalProjection * normalZ;
+    x = hitX + minimumDistance * directionX;
+    z = hitZ + minimumDistance * directionZ;
+  }
+
+  return { absorbed: 1 - remainingPower, path };
+}
+
+function traceKeyholeAbsorptance(
+  depthUm: number,
+  mouthRadiusUm: number,
+): number {
+  const flat = fresnelAbsorptivity(1);
+  if (depthUm <= 0) return flat;
+  const radialStep = (2 * mouthRadiusUm) / 200;
+  const rings = Array.from({ length: 200 }, (_, index) => {
+    const radius = (index + 0.5) * radialStep;
+    return {
+      radius,
+      weight:
+        Math.exp(-2 * radius ** 2 / mouthRadiusUm ** 2) *
+        radius *
+        radialStep,
+    };
+  });
+  const totalWeight = rings.reduce((sum, ring) => sum + ring.weight, 0);
+  return rings.reduce((absorbed, ring) => {
+    const weight = ring.weight / totalWeight;
+    return (
+      absorbed +
+      weight *
+        (ring.radius >= mouthRadiusUm
+          ? flat
+          : traceKeyholeRay(ring.radius, depthUm, mouthRadiusUm).absorbed)
+    );
+  }, 0);
+}
+
+const ABSORPTANCE_STEP_UM = 10;
+const MAX_KEYHOLE_DEPTH_UM = 1600;
+
+function createAbsorptanceTable(mouthRadiusUm: number): number[] {
+  const table: number[] = [];
+  for (
+    let index = 0;
+    index <= MAX_KEYHOLE_DEPTH_UM / ABSORPTANCE_STEP_UM;
+    index += 1
+  ) {
+    const traced = traceKeyholeAbsorptance(
+      index * ABSORPTANCE_STEP_UM,
+      mouthRadiusUm,
+    );
+    table.push(Math.max(table[table.length - 1] ?? 0, traced));
+  }
+  return table;
+}
+
+const DEFAULT_ABSORPTANCE_TABLE = createAbsorptanceTable(MOUTH_RADIUS_UM);
+const ABSORPTANCE_TABLES = new Map<number, number[]>([
+  [MOUTH_RADIUS_UM, DEFAULT_ABSORPTANCE_TABLE],
+]);
+
+export function keyholeAbsorptance(
+  depthUm: number,
+  mouthRadiusUm = MOUTH_RADIUS_UM,
+): number {
+  if (depthUm <= 0) return fresnelAbsorptivity(1);
+  if (!(mouthRadiusUm > 0)) {
+    throw new RangeError("mouthRadiusUm must be positive");
+  }
+
+  const depth = Math.min(MAX_KEYHOLE_DEPTH_UM, depthUm);
+  let table = ABSORPTANCE_TABLES.get(mouthRadiusUm);
+  if (!table) {
+    table = createAbsorptanceTable(mouthRadiusUm);
+    ABSORPTANCE_TABLES.set(mouthRadiusUm, table);
+  }
+  const tablePosition = depth / ABSORPTANCE_STEP_UM;
+  const lowerIndex = Math.floor(tablePosition);
+  const upperIndex = Math.min(
+    table.length - 1,
+    lowerIndex + 1,
+  );
+  const fraction = tablePosition - lowerIndex;
+  return (
+    table[lowerIndex] * (1 - fraction) +
+    table[upperIndex] * fraction
+  );
+}
+
+export function keyholeRayPath(
+  offset: number,
+  depthUm: number,
+  mouthRadiusUm = MOUTH_RADIUS_UM,
+): RayPath {
+  if (offset <= -1 || offset >= 1) {
+    throw new RangeError("offset must be between -1 and 1");
+  }
+  return traceKeyholeRay(
+    offset * mouthRadiusUm,
+    depthUm,
+    mouthRadiusUm,
+  ).path;
+}
+
 export interface DepthSample {
   time: number;
   depth: number;
   mean: number;
+  absorptance: number;
+  mode: "conduction" | "keyhole";
 }
 
 export function depthAt(timeMs: number): number {
-  const t = Math.max(0, timeMs);
-  const growth = 1 - Math.exp(-t / 5);
-  const fluctuations =
-    65 * Math.sin(t * 2 * Math.PI * 0.13) +
-    42 * Math.sin(t * 2 * Math.PI * 0.37) +
-    55 * noise(Math.round(t / SAMPLE_INTERVAL_MS));
-  return Math.round(Math.max(0, growth * (1200 + fluctuations)));
+  const t = Number.isFinite(timeMs) ? Math.max(0, timeMs) : 0;
+  const conductionDepth =
+    70 * (1 - Math.exp(-KEYHOLE_ONSET_MS / 2));
+  let depth: number;
+  if (t < KEYHOLE_ONSET_MS) {
+    depth = 70 * (1 - Math.exp(-t / 2));
+  } else {
+    const growth = 1 - Math.exp(-(t - KEYHOLE_ONSET_MS) / 4);
+    const fluctuations =
+      65 * Math.sin(t * 2 * Math.PI * 0.13) +
+      42 * Math.sin(t * 2 * Math.PI * 0.37) +
+      55 * noise(Math.round(t / SAMPLE_INTERVAL_MS));
+    depth =
+      conductionDepth +
+      growth * (1200 - conductionDepth + fluctuations);
+  }
+  return Math.min(MAX_KEYHOLE_DEPTH_UM, Math.max(0, Math.round(depth)));
+}
+
+export function modeAt(timeMs: number): "conduction" | "keyhole" {
+  const t = Number.isFinite(timeMs) ? Math.max(0, timeMs) : 0;
+  return t < KEYHOLE_ONSET_MS ? "conduction" : "keyhole";
 }
 
 export const DEPTH_SAMPLES: DepthSample[] = Array.from(
@@ -123,7 +414,13 @@ export const DEPTH_SAMPLES: DepthSample[] = Array.from(
     let sum = 0;
     for (let i = from; i <= index; i += 1)
       sum += depthAt(i * SAMPLE_INTERVAL_MS);
-    return { time, depth, mean: Math.round(sum / (index - from + 1)) };
+    return {
+      time,
+      depth,
+      mean: Math.round(sum / (index - from + 1)),
+      absorptance: Math.round(keyholeAbsorptance(depth) * 1000) / 1000,
+      mode: modeAt(time),
+    };
   },
 );
 
