@@ -26,7 +26,10 @@ import math
 from dataclasses import dataclass, field
 
 from .materials import Material
+from .optics import KeyholeAbsorptance, fresnel_absorptivity, keyhole_absorptance
 from .types import WeldParams
+
+GAS_CONSTANT = 8.314462618
 
 #: Absorbed intensity above which metals form a keyhole, ~1 MW/cm². A widely
 #: used engineering threshold for laser welding of steel and titanium; it is a
@@ -58,6 +61,10 @@ class KeyholeEstimate:
     full_penetration: bool
     plate_thickness: float  # m
     notes: list[str] = field(default_factory=list)
+    flat_absorptivity: float | None = None
+    keyhole_absorptance: float | None = None
+    recoil_onset_temperature: float | None = None
+    capillary_pressure: float | None = None
 
     @property
     def depth_mm(self) -> float:
@@ -85,6 +92,54 @@ def peak_intensity(weld: WeldParams, wobble_amplitude: float = 0.0) -> float:
     return intensity
 
 
+def recoil_pressure(temperature: float, material: Material) -> float:
+    """Estimate vapour recoil pressure at the specified surface temperature."""
+    if material.vapor_molar_mass is None:
+        raise ValueError(f"Material {material.name!r} has no vapour molar mass")
+    if temperature <= 0.0 or material.boiling <= 0.0:
+        raise ValueError("temperature and boiling temperature must be positive")
+    exponent = (
+        material.latent_heat_vaporization
+        * material.vapor_molar_mass
+        * (temperature - material.boiling)
+        / (GAS_CONSTANT * temperature * material.boiling)
+    )
+    return material.recoil_prefactor * material.ambient_pressure * math.exp(exponent)
+
+
+def recoil_onset_temperature(material: Material, beam_radius: float) -> float | None:
+    """Return the temperature at which recoil balances beam-scale capillary pressure."""
+    if material.vapor_molar_mass is None:
+        return None
+    if beam_radius <= 0.0:
+        raise ValueError("beam_radius must be positive")
+    capillary_pressure = 2.0 * material.surface_tension / beam_radius
+    reference_pressure = material.recoil_prefactor * material.ambient_pressure
+    denominator = material.latent_heat_vaporization * material.vapor_molar_mass
+    if capillary_pressure <= 0.0 or reference_pressure <= 0.0 or denominator <= 0.0:
+        raise ValueError("recoil and capillary properties must be positive")
+    inverse_temperature = 1.0 / material.boiling - (
+        GAS_CONSTANT * math.log(capillary_pressure / reference_pressure) / denominator
+    )
+    if inverse_temperature <= 0.0:
+        raise ValueError("recoil onset temperature is not positive")
+    return 1.0 / inverse_temperature
+
+
+def keyhole_threshold_intensity(material: Material, weld: WeldParams) -> float:
+    """Return an engineering estimate, not an exact keyhole threshold."""
+    onset = recoil_onset_temperature(material, weld.sigma)
+    if onset is None:
+        return KEYHOLE_THRESHOLD_INTENSITY
+    peclet = weld.speed * weld.sigma / material.thermal_diffusivity
+    return (
+        material.thermal_conductivity
+        * (onset - material.T0)
+        / (weld.sigma * math.sqrt(math.pi / 2.0))
+        * math.sqrt(1.0 + peclet)
+    )
+
+
 def estimate_keyhole(
     weld: WeldParams,
     material: Material,
@@ -109,7 +164,7 @@ def estimate_keyhole(
     KeyholeEstimate
     """
     intensity = peak_intensity(weld, wobble_amplitude)
-    threshold = KEYHOLE_THRESHOLD_INTENSITY
+    threshold = keyhole_threshold_intensity(material, weld)
 
     if intensity >= threshold:
         mode = "keyhole"
@@ -166,6 +221,31 @@ def estimate_keyhole(
             "expect a deep unstable keyhole with spatter and porosity risk."
         )
 
+    flat_absorptivity = None
+    predicted_absorptance = None
+    if material.optical_n is not None and material.optical_k is not None:
+        flat_absorptivity = fresnel_absorptivity(1.0, material.optical_n, material.optical_k)
+        if mode == "conduction":
+            predicted_absorptance = flat_absorptivity
+        else:
+            predicted_absorptance = keyhole_absorptance(
+                material.optical_n,
+                material.optical_k,
+                depth=depth,
+                mouth_radius=weld.sigma,
+            ).absorptance
+        if abs(weld.efficiency - predicted_absorptance) > 0.15:
+            notes.append(
+                f"Fresnel ray trace predicts ~{predicted_absorptance * 100.0:.0f} % "
+                f"absorption for this keyhole (flat melt "
+                f"{flat_absorptivity * 100.0:.0f} %); efficiency is set to "
+                f"{weld.efficiency * 100.0:.0f} %. Calibrate against a macro-section "
+                "before trusting depth."
+            )
+
+    onset_temperature = recoil_onset_temperature(material, weld.sigma)
+    capillary_pressure = 2.0 * material.surface_tension / weld.sigma
+
     return KeyholeEstimate(
         mode=mode,
         peak_intensity=intensity,
@@ -177,6 +257,10 @@ def estimate_keyhole(
         full_penetration=full_penetration,
         plate_thickness=plate_thickness,
         notes=notes,
+        flat_absorptivity=flat_absorptivity,
+        keyhole_absorptance=predicted_absorptance,
+        recoil_onset_temperature=onset_temperature,
+        capillary_pressure=capillary_pressure,
     )
 
 
@@ -184,5 +268,12 @@ __all__ = [
     "KeyholeEstimate",
     "estimate_keyhole",
     "peak_intensity",
+    "recoil_pressure",
+    "recoil_onset_temperature",
+    "keyhole_threshold_intensity",
+    "fresnel_absorptivity",
+    "keyhole_absorptance",
+    "KeyholeAbsorptance",
+    "GAS_CONSTANT",
     "KEYHOLE_THRESHOLD_INTENSITY",
 ]
