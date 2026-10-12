@@ -453,7 +453,9 @@ export function measurementPath(time: number, depth: number): Point[] {
   const x = 4.35 + 0.25 * Math.sin(scan * 0.7);
   const z = 0.12 * Math.sin(scan * 1.1);
   return [
-    [0.1, 3.45, -2.5],
+    [-1.62, 3.45, -2.6],
+    [0.9, 3.45, -2.6],
+    [0.1, 3.45, -1.8],
     [0.1, 3.45, 0],
     [2.15, 3.45, 0],
     [3.65, 4.15, 0.05 * Math.sin(scan * 0.7)],
