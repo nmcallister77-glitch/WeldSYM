@@ -13,6 +13,8 @@ import {
 } from "three";
 import {
   DEPTH_SCALE,
+  MOUTH_RADIUS_UM,
+  keyholeRayPath,
   measurementPath,
   phaseAt,
   returnPath,
@@ -24,6 +26,8 @@ const ORANGE = "#ff722e";
 const CYAN = "#53e4ec";
 const PUMP = "#e9e77c";
 const UP = new Vector3(0, 1, 0);
+const MOUTH_HALF_WIDTH = 0.32;
+const KEYHOLE_RAY_OFFSETS = [-0.72, -0.28, 0.45];
 const COIL: Point[] = Array.from({ length: 180 }, (_, i) => {
   const f = i / 179;
   return [
@@ -289,11 +293,9 @@ function Workpiece({
     shape.lineTo(1.9, -2.8);
     shape.lineTo(1.9, 0);
     if (d > 0) {
-      shape.lineTo(offset + 0.32, 0);
-      shape.quadraticCurveTo(offset + 0.19, -d * 0.06, offset + 0.10, -d * 0.72);
-      shape.quadraticCurveTo(offset + 0.05, -d, offset, -d);
-      shape.quadraticCurveTo(offset - 0.05, -d, offset - 0.10, -d * 0.72);
-      shape.quadraticCurveTo(offset - 0.19, -d * 0.06, offset - 0.32, 0);
+      shape.lineTo(offset + MOUTH_HALF_WIDTH, 0);
+      shape.lineTo(offset, -d);
+      shape.lineTo(offset - MOUTH_HALF_WIDTH, 0);
     }
     shape.lineTo(-1.9, 0);
     shape.closePath();
@@ -314,8 +316,47 @@ function Workpiece({
       p.scale.setScalar((1 - f) * 0.045);
     });
   });
+  const rays = useMemo(
+    () =>
+      d > 0
+        ? KEYHOLE_RAY_OFFSETS.map((rayOffset) => {
+            const ray = keyholeRayPath(rayOffset, depth);
+            const points = ray.points.map(
+              ([x, z]): Point => [
+                tip[0] + (x * MOUTH_HALF_WIDTH) / MOUTH_RADIUS_UM,
+                0.12 - z * DEPTH_SCALE,
+                0.37,
+              ],
+            );
+            return { points, power: ray.power };
+          })
+        : [],
+    [d, depth, tip],
+  );
   return (
     <group>
+      {active &&
+        rays.map((ray, r) => (
+          <group key={r}>
+            <Segment
+              from={[ray.points[0][0], 0.95, 0.37]}
+              to={ray.points[0]}
+              color={ORANGE}
+              radius={0.007}
+              opacity={0.95}
+            />
+            {ray.points.slice(1).map((point, i) => (
+              <Segment
+                key={i}
+                from={ray.points[i]}
+                to={point}
+                color={ORANGE}
+                radius={0.007}
+                opacity={0.2 + 0.75 * ray.power[i]}
+              />
+            ))}
+          </group>
+        ))}
       <mesh position={[4.4, 0.12, -0.9]}>
         <extrudeGeometry
           args={[section, { depth: 1.25, bevelEnabled: false, curveSegments: 12 }]}

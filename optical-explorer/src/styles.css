@@ -421,6 +421,41 @@ button svg {
   font-size: 9px;
   color: #70898b;
 }
+.optics-values {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -2px 0 10px;
+  font-size: 9px;
+  color: #7f959e;
+}
+.mode-pill {
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid #2c3f45;
+  letter-spacing: 0.4px;
+}
+.mode-pill.conduction {
+  color: #ffd38a;
+  border-color: #6b5228;
+  background: rgba(255, 178, 64, 0.08);
+}
+.mode-pill.keyhole {
+  color: #ff9a62;
+  border-color: #7a3a1c;
+  background: rgba(255, 114, 46, 0.12);
+}
+.absorbed-value {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.absorbed-value strong {
+  font-weight: 400;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: #ffb27d;
+}
 .chart-axis-title {
   font-size: 8px;
   color: #718993;
