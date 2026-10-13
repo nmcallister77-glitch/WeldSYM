@@ -5,11 +5,19 @@ import {
   DEPTH_SAMPLES,
   DEPTH_SCALE,
   DURATION,
+  fresnelAbsorptivity,
   INTERACTION_START,
+  KEYHOLE_ONSET_MS,
+  keyholeAbsorptance,
+  keyholeRayPath,
   measurementPath,
+  modeAt,
+  MOUTH_RADIUS_UM,
   phaseAt,
   returnPath,
   signalAt,
+  STEEL_K,
+  STEEL_N,
 } from "./simulation.ts";
 
 test("phase boundaries are exact and the end stays in the interaction phase", () => {
@@ -97,4 +105,81 @@ test("the synthetic steady signal fluctuates around its nominal depth with a tru
     );
     assert(sample.depth >= 0 && sample.depth <= 1600);
   });
+});
+
+test("Fresnel absorptivity matches normal incidence and tends to zero at grazing incidence", () => {
+  const expected =
+    1 -
+    ((STEEL_N - 1) ** 2 + STEEL_K ** 2) /
+      ((STEEL_N + 1) ** 2 + STEEL_K ** 2);
+  assert.ok(Math.abs(fresnelAbsorptivity(1) - expected) < 1e-12);
+  assert.equal(fresnelAbsorptivity(0), 0);
+  assert(fresnelAbsorptivity(0.2) > fresnelAbsorptivity(1));
+});
+
+test("keyhole absorptance agrees with WeldSYM's Python ray trace", () => {
+  // References from .venv/bin/python calling weldsim.optics.keyhole_absorptance(3.5, 4.0, depth_um * 1e-6, 150e-6).
+  const references = [
+    [0, 0.386206896552],
+    [100, 0.420276405494],
+    [400, 0.807917083735],
+    [1200, 0.915412091977],
+  ] as const;
+  for (const [depthUm, expected] of references) {
+    assert.ok(
+      Math.abs(keyholeAbsorptance(depthUm) - expected) < 0.02,
+      `depth ${depthUm} µm: ${keyholeAbsorptance(depthUm)} vs ${expected}`,
+    );
+  }
+});
+
+test("keyhole absorptance is monotonic and bounded over the table range", () => {
+  const absorptances = Array.from({ length: 161 }, (_, index) =>
+    keyholeAbsorptance(index * 10),
+  );
+  absorptances.forEach((absorptance, index) => {
+    assert(absorptance >= 0 && absorptance <= 1);
+    if (index > 0) assert(absorptance >= absorptances[index - 1] - 1e-12);
+  });
+});
+
+test("depth samples switch from conduction to a more absorptive keyhole", () => {
+  const conductionSamples = DEPTH_SAMPLES.filter(
+    (sample) => sample.time < KEYHOLE_ONSET_MS,
+  );
+  assert(conductionSamples.length > 0);
+  for (const sample of conductionSamples) {
+    assert.equal(sample.mode, "conduction");
+    assert(sample.depth < 100);
+  }
+  assert.equal(modeAt(KEYHOLE_ONSET_MS - 0.001), "conduction");
+  assert.equal(modeAt(KEYHOLE_ONSET_MS), "keyhole");
+
+  const flat = fresnelAbsorptivity(1);
+  const formedSamples = DEPTH_SAMPLES.filter(
+    (sample) => sample.time >= KEYHOLE_ONSET_MS + 20,
+  );
+  assert(formedSamples.length > 0);
+  for (const sample of formedSamples) {
+    assert.equal(sample.mode, "keyhole");
+    assert(sample.absorptance > flat);
+    assert.equal(sample.absorptance, Math.round(sample.absorptance * 1000) / 1000);
+  }
+});
+
+test("keyhole ray paths preserve power and follow the conical wall", () => {
+  const path = keyholeRayPath(0.5, 1200);
+  assert.deepEqual(path.points[0], [75, 0]);
+  assert.equal(path.power[0], 1);
+  assert.equal(path.points.length, path.power.length);
+  for (let index = 1; index < path.power.length; index += 1) {
+    assert(path.power[index] <= path.power[index - 1]);
+  }
+  const lastIndex = path.points.length - 1;
+  assert(path.points[lastIndex][1] <= 0 || path.power[lastIndex] < 1e-6);
+
+  for (const [x, z] of path.points.slice(1, -1)) {
+    const wallRadius = MOUTH_RADIUS_UM * (1 - z / 1200);
+    assert.ok(Math.abs(Math.abs(x) - wallRadius) <= 1e-6);
+  }
 });

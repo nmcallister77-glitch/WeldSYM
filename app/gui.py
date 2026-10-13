@@ -685,6 +685,20 @@ def _render_weld_report(
         f"{section.aspect_ratio:.2f}" if section is not None else f"{k.aspect_ratio:.2f}",
     )
     cols[2].metric("Full penetration", "yes" if report.full_penetration else "no")
+    physics_metrics = [
+        ("Keyhole threshold", f"{k.threshold_intensity * 1e-10:.2f} MW/cm²"),
+    ]
+    if k.recoil_onset_temperature is not None:
+        physics_metrics.append(("Recoil onset temperature", f"{k.recoil_onset_temperature:.0f} K"))
+    if k.capillary_pressure is not None:
+        physics_metrics.append(("Capillary pressure", f"{k.capillary_pressure / 1e3:.1f} kPa"))
+    if k.flat_absorptivity is not None:
+        physics_metrics.append(("Flat Fresnel absorptivity", f"{k.flat_absorptivity:.1%}"))
+    if k.keyhole_absorptance is not None:
+        physics_metrics.append(("Keyhole Fresnel absorptance", f"{k.keyhole_absorptance:.1%}"))
+    metric_cols = st.columns(len(physics_metrics))
+    for column, (label, value) in zip(metric_cols, physics_metrics):
+        column.metric(label, value)
 
     if solution is not None and section is not None:
         cols = st.columns(4)
@@ -713,14 +727,14 @@ def _render_weld_report(
             f"Penetration is measured on the fusion boundary of the {solution.T.shape[0]}×"
             f"{solution.T.shape[1]}×{solution.T.shape[2]} 3D solve "
             f"({solution.steps} steps of {solution.dt * 1e3:.2f} ms). Mode is set by "
-            "comparing absorbed intensity with the ~1 MW/cm² keyhole threshold, and the "
+            "estimating when vapour recoil pressure overcomes capillary pressure. The "
             "capillary is an assumed tapered channel: melt flow, recoil pressure and the "
             "free surface are not resolved, which is what the optional OpenFOAM export is for."
         )
     else:
         st.caption(
-            "Mode is set by comparing absorbed intensity with the ~1 MW/cm² keyhole "
-            "threshold; depth comes from an energy balance over the melted channel. "
+            "Mode is estimated by comparing vapour recoil pressure with capillary "
+            "pressure; depth comes from an energy balance over the melted channel. "
             "Switch the solver to **3D through-thickness** on the **Setup** tab to "
             "measure penetration and see the weld cross-section."
         )

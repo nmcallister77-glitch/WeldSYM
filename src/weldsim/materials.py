@@ -96,6 +96,11 @@ class Material:
     base_hardness_hv: float = 170.0
     grain_coarsening_temperature: float | None = None  # K
     haz_lower_temperature: float | None = None  # K
+    optical_n: float | None = None
+    optical_k: float | None = None
+    vapor_molar_mass: float | None = None
+    recoil_prefactor: float = 0.54
+    ambient_pressure: float = 101325.0
 
     @property
     def thermal_diffusivity(self) -> float:
@@ -206,6 +211,20 @@ def load_material(name: str, at_temperature: float = 1200.0) -> Material:
         t_ref = at_temperature
 
     haz = data.get("haz", {})
+    optical = data.get("optical", {})
+    optical_n = None
+    optical_k = None
+    optical_keys = {"temperature", "n_real", "n_imag"}
+    if optical_keys.issubset(optical):
+        optical_temperature = np.array(optical["temperature"], dtype=float)
+        optical_n = _interp1d(optical_temperature, np.array(optical["n_real"], dtype=float))(
+            phase["liquidus_temperature"]
+        )
+        optical_k = _interp1d(optical_temperature, np.array(optical["n_imag"], dtype=float))(
+            phase["liquidus_temperature"]
+        )
+    vapor = data.get("vapor", {})
+    recoil = data.get("recoil_pressure", {})
     return Material(
         name=alloy["name"],
         density=rho(at_temperature),
@@ -234,6 +253,11 @@ def load_material(name: str, at_temperature: float = 1200.0) -> Material:
         base_hardness_hv=float(haz.get("base_hardness_hv", 170.0)),
         grain_coarsening_temperature=haz.get("grain_coarsening_temperature"),
         haz_lower_temperature=haz.get("lower_limit_temperature"),
+        optical_n=optical_n,
+        optical_k=optical_k,
+        vapor_molar_mass=(float(vapor["molar_mass"]) if "molar_mass" in vapor else None),
+        recoil_prefactor=float(recoil.get("prefactor", 0.54)),
+        ambient_pressure=float(recoil.get("atmospheric_pressure", 101325.0)),
     )
 
 

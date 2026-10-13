@@ -192,6 +192,21 @@ function DepthChart({ time, playing }: { time: number; playing: boolean }) {
           </strong>
         </div>
       </div>
+      <div className="optics-values">
+        <span className={`mode-pill ${active ? sample.mode : ""}`}>
+          {active
+            ? sample.mode === "keyhole"
+              ? "Keyhole mode"
+              : "Conduction mode"
+            : "No melt yet"}
+        </span>
+        <span className="absorbed-value">
+          Absorbed
+          <strong>
+            {active ? `${Math.round(sample.absorptance * 100)} %` : "—"}
+          </strong>
+        </span>
+      </div>
       <div className="chart-axis-title">Depth (µm)</div>
       <div className="chart-plot">
         <ResponsiveContainer width="100%" height="100%" minWidth={0}>
@@ -354,7 +369,11 @@ function Guide({ onClose }: { onClose: () => void }) {
         <p>
           Colors make infrared beams visible. The optical layout, photon motion,
           and cutaway depth are illustrative, with a slowed 120 ms acquisition
-          over phase 04. Depth noise is synthetic; this is an educational model,
+          over phase 04. The depth fluctuations are synthetic, but formation and
+          absorption follow the WeldSYM keyhole physics: a shallow conduction
+          dish until vapor recoil opens the keyhole, then Fresnel absorption at
+          every wall reflection (molten steel, n = 3.5, k = 4.0) raises absorbed
+          power from about 39 % to over 90 %. It is still an educational model,
           not a process prediction or sensor feed.
         </p>
         <p className="guide-note">
@@ -445,9 +464,10 @@ export default function App() {
 
   function downloadData() {
     const rows = [
-      "time_ms,depth_um,trailing_10ms_mean_um",
+      "time_ms,depth_um,trailing_10ms_mean_um,mode,absorptance",
       ...signal.history.map(
-        (sample) => `${sample.time},${sample.depth},${sample.mean}`,
+        (sample) =>
+          `${sample.time},${sample.depth},${sample.mean},${sample.mode},${sample.absorptance}`,
       ),
     ];
     const url = URL.createObjectURL(
